@@ -51,6 +51,9 @@
 #include "vm/GeneratorObject.h"
 #include "vm/Iteration.h"
 #include "vm/JSContext.h"
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+#  include "js/ExternalCompilerHooks.h"
+#endif
 #include "vm/JSFunction.h"
 #include "vm/JSObject.h"
 #include "vm/JSScript.h"
@@ -456,6 +459,20 @@ bool js::RunScript(JSContext* cx, RunState& state) {
     case jit::EnterJitStatus::NotEntered:
       break;
   }
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (state.script()->externalTierWord() && cx->externalCompilerHooks() &&
+      cx->externalCompilerHooks()->enterScript) {
+    switch (cx->externalCompilerHooks()->enterScript(cx, state)) {
+      case JS::ExternalEnterStatus::Error:
+        return false;
+      case JS::ExternalEnterStatus::Ok:
+        return true;
+      case JS::ExternalEnterStatus::NotEntered:
+        break;
+    }
+  }
+#endif
 
   bool ok = MaybeEnterInterpreterTrampoline(cx, state);
   if (!ok) {
@@ -3321,6 +3338,24 @@ bool MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER js::Interpret(JSContext* cx,
               break;
           }
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+          if (funScript->externalTierWord() && cx->externalCompilerHooks() &&
+              cx->externalCompilerHooks()->enterCall) {
+            switch (cx->externalCompilerHooks()->enterCall(
+                cx, args, funScript, bool(construct))) {
+              case JS::ExternalEnterStatus::Error:
+                goto error;
+              case JS::ExternalEnterStatus::Ok:
+                interpReturnOK = true;
+                CHECK_BRANCH();
+                REGS.sp = args.spAfterCall();
+                goto jit_return;
+              case JS::ExternalEnterStatus::NotEntered:
+                break;
+            }
+          }
+#endif
+
 #ifdef NIGHTLY_BUILD
           // If entry trampolines are enabled, call back into
           // MaybeEnterInterpreterTrampoline so we can generate an
@@ -4232,6 +4267,35 @@ bool MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER js::Interpret(JSContext* cx,
     END_CASE(CheckResumeKind)
 
     CASE(Resume) {
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+      if (cx->externalCompilerHooks() &&
+          cx->externalCompilerHooks()->isForeignGenerator) {
+        // A generator whose frame belongs to the external tier cannot be
+        // resumed by the interpreter: the tier runs it to its next suspend
+        // point or completion synchronously and yields the result value.
+        auto* genRaw = &REGS.sp[-3].toObject().as<AbstractGeneratorObject>();
+        if (cx->externalCompilerHooks()->isForeignGenerator(cx, genRaw)) {
+          bool ok;
+          {
+            // The rooted scope closes before the dispatch below: an indirect
+            // goto cannot leave a scope holding non-trivial locals.
+            Rooted<AbstractGeneratorObject*> gen(cx, genRaw);
+            ReservedRooted<Value> val(&rootValue0, REGS.sp[-2]);
+            ReservedRooted<Value> resumeKindVal(&rootValue1, REGS.sp[-1]);
+            // Inputs are rooted here; consume the three operands and write
+            // the completion value in their place.
+            REGS.sp -= 2;
+            ok = cx->externalCompilerHooks()->resumeGenerator(
+                     cx, gen, val, resumeKindVal, REGS.stackHandleAt(-1)) ==
+                 JS::ExternalEnterStatus::Ok;
+          }
+          if (!ok) {
+            goto error;
+          }
+          ADVANCE_AND_DISPATCH(JSOpLength_Resume);
+        }
+      }
+#endif
       {
         Rooted<AbstractGeneratorObject*> gen(
             cx, &REGS.sp[-3].toObject().as<AbstractGeneratorObject>());

@@ -916,9 +916,21 @@ RegExpRunStatus Interpret(JSContext* cx, MutableHandleRegExpShared re,
   return status;
 }
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+// An external matcher reports a status word without including the imported
+// V8 header; keep the exported constants pinned to the values they mirror.
+static_assert(kExternalMatcherSuccess ==
+              v8::internal::RegExp::kInternalRegExpSuccess);
+static_assert(kExternalMatcherFailure ==
+              v8::internal::RegExp::kInternalRegExpFailure);
+#endif  // JS_EXTERNAL_COMPILER_HOOKS
+
 RegExpRunStatus Execute(JSContext* cx, MutableHandleRegExpShared re,
                         Handle<JSLinearString*> input, size_t startIndex,
                         VectorMatchPairs* matches) {
+  // An external matcher (JS::ExternalCompilerHooks::regexpMatch) is consulted
+  // in RegExpShared::execute, the only caller; reaching here means it
+  // declined.
   bool latin1 = input->hasLatin1Chars();
   jit::JitCode* jitCode = re->getJitCode(latin1);
   bool isCompiled = !!jitCode;

@@ -24,6 +24,10 @@
 #include "vm/PlainObject.h"         // js::PlainObject
 #include "vm/TypedArrayObject.h"
 #include "vm/Watchtower.h"
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+#  include "vm/GlobalObject.h"
+#endif
 #include "gc/Nursery-inl.h"
 #include "vm/JSObject-inl.h"
 #include "vm/Shape-inl.h"
@@ -1475,6 +1479,11 @@ bool js::AddSlotAndCallAddPropHook(JSContext* cx, Handle<NativeObject*> obj,
     return false;
   }
   obj->initSlot(slot, v);
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (obj->externalWord()) {
+    ExternalPropertyAdded(cx, obj, id, slot);
+  }
+#endif
 
   if (MOZ_UNLIKELY(hasUnpreservedWrapper)) {
     MaybePreserveDOMWrapper(cx, obj);
@@ -1589,6 +1598,12 @@ bool js::NativeDefineProperty(JSContext* cx, Handle<NativeObject*> obj,
                               HandleId id, Handle<PropertyDescriptor> desc_,
                               ObjectOpResult& result) {
   desc_.assertValid();
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (MOZ_UNLIKELY(obj->is<GlobalObject>()) && cx->externalCompilerHooks() &&
+      cx->externalCompilerHooks()->globalKeyChanged) {
+    cx->externalCompilerHooks()->globalKeyChanged(cx, id);
+  }
+#endif
 
   // Section numbers and step numbers below refer to ES2025, draft rev
   // ac21460fedf4b926520b06c9820bdbebad596a8b.
@@ -2446,6 +2461,12 @@ static bool NativeSetExistingDataProperty(JSContext* cx,
 
   if (prop.isDataProperty()) {
     // The common path. Standard data property.
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+    if (MOZ_UNLIKELY(obj->is<GlobalObject>()) && cx->externalCompilerHooks() &&
+        cx->externalCompilerHooks()->globalDataStored) {
+      cx->externalCompilerHooks()->globalDataStored(cx, id, v.asRawBits());
+    }
+#endif
     obj->setSlot(prop.slot(), v);
     return result.succeed();
   }
@@ -2865,6 +2886,12 @@ bool js::NativeDeleteProperty(JSContext* cx, Handle<NativeObject*> obj,
                               result)) {
     return false;
   }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (MOZ_UNLIKELY(obj->is<GlobalObject>()) && cx->externalCompilerHooks() &&
+      cx->externalCompilerHooks()->globalKeyChanged) {
+    cx->externalCompilerHooks()->globalKeyChanged(cx, id);
+  }
+#endif
   if (!result) {
     return true;
   }

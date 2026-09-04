@@ -172,6 +172,7 @@
 #include "js/WasmModule.h"    // JS::WasmModule
 #include "js/Wrapper.h"
 #include "proxy/DeadObjectProxy.h"  // js::IsDeadProxyObject
+#include "shell/CommonShellGlobals.h"
 #include "shell/jsoptparse.h"
 #include "shell/jsshell.h"
 #include "shell/OSObject.h"
@@ -874,6 +875,20 @@ bool shell::OOM_printAllocationCount = false;
 
 MOZ_RUNINIT UniqueChars shell::processWideModuleLoadPath;
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+static const ShellExtension* gShellExtension = nullptr;
+// Set while the positional script is processed (see ShellExtension).
+static bool processingPrimaryScript = false;
+
+void js::shell::SetShellExtension(const ShellExtension* ext) {
+  gShellExtension = ext;
+}
+
+const ShellExtension* js::shell::GetShellExtension() {
+  return gShellExtension;
+}
+#endif
+
 static bool SetTimeoutValue(JSContext* cx, double t);
 
 static void KillWatchdog(JSContext* cx);
@@ -1313,7 +1328,13 @@ enum class CompileUtf8 {
         .setIsRunOnce(true)
         .setNoScriptRval(true);
 
-    if (fullParse) {
+    bool wantFullParse = fullParse;
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+    if (gShellExtension && gShellExtension->wantsFullParse) {
+      wantFullParse |= gShellExtension->wantsFullParse(processingPrimaryScript);
+    }
+#endif
+    if (wantFullParse) {
       options.setForceFullParse();
     } else {
       options.setEagerDelazificationStrategy(defaultDelazificationMode);
@@ -1358,6 +1379,13 @@ enum class CompileUtf8 {
     return false;
   }
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (gShellExtension && gShellExtension->scriptCompiled &&
+      !gShellExtension->scriptCompiled(cx, script, processingPrimaryScript)) {
+    return false;
+  }
+#endif
+
 #ifdef DEBUG
   if (dumpEntrainedVariables) {
     AnalyzeEntrainedVariables(cx, script);
@@ -1371,6 +1399,12 @@ enum class CompileUtf8 {
     if (printTiming) {
       printf("runtime = %.3f ms\n", double(t2) / PRMJ_USEC_PER_MSEC);
     }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+    if (gShellExtension && gShellExtension->scriptExecuted &&
+        !gShellExtension->scriptExecuted(cx, script, processingPrimaryScript)) {
+      return false;
+    }
+#endif
   }
   return true;
 }
@@ -3566,23 +3600,8 @@ static bool PrintInternal(JSContext* cx, const CallArgs& args, RCFile* file) {
     return false;
   }
 
-  for (unsigned i = 0; i < args.length(); i++) {
-    RootedString str(cx, JS::ToString(cx, args[i]));
-    if (!str) {
-      return false;
-    }
-    UniqueChars bytes = JS_EncodeStringToUTF8(cx, str);
-    if (!bytes) {
-      return false;
-    }
-    fprintf(file->fp, "%s%s", i ? " " : "", bytes.get());
-  }
-
-  fputc('\n', file->fp);
-  fflush(file->fp);
-
-  args.rval().setUndefined();
-  return true;
+  // Shared with the AOT runtime via shell/CommonShellGlobals.
+  return js::shell::PrintArgs(cx, args, file->fp, /* newline = */ true);
 }
 
 static bool Print(JSContext* cx, unsigned argc, Value* vp) {
@@ -3673,56 +3692,6 @@ static bool StopTimingMutator(JSContext* cx, unsigned argc, Value* vp) {
             gc_ms / total_ms * 100.0);
   }
 
-  args.rval().setUndefined();
-  return true;
-}
-
-static const char* ToSource(JSContext* cx, HandleValue vp, UniqueChars* bytes) {
-  RootedString str(cx, JS_ValueToSource(cx, vp));
-  if (str) {
-    *bytes = JS_EncodeStringToUTF8(cx, str);
-    if (*bytes) {
-      return bytes->get();
-    }
-  }
-  JS_ClearPendingException(cx);
-  return "<<error converting value to string>>";
-}
-
-static bool AssertEq(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  if (!(args.length() == 2 || (args.length() == 3 && args[2].isString()))) {
-    JS_ReportErrorNumberASCII(cx, my_GetErrorMessage, nullptr,
-                              (args.length() < 2)    ? JSSMSG_NOT_ENOUGH_ARGS
-                              : (args.length() == 3) ? JSSMSG_INVALID_ARGS
-                                                     : JSSMSG_TOO_MANY_ARGS,
-                              "assertEq");
-    return false;
-  }
-
-  bool same;
-  if (!JS::SameValue(cx, args[0], args[1], &same)) {
-    return false;
-  }
-  if (!same) {
-    UniqueChars bytes0, bytes1;
-    const char* actual = ToSource(cx, args[0], &bytes0);
-    const char* expected = ToSource(cx, args[1], &bytes1);
-    if (args.length() == 2) {
-      JS_ReportErrorNumberUTF8(cx, my_GetErrorMessage, nullptr,
-                               JSSMSG_ASSERT_EQ_FAILED, actual, expected);
-    } else {
-      RootedString message(cx, args[2].toString());
-      UniqueChars bytes2 = QuoteString(cx, message);
-      if (!bytes2) {
-        return false;
-      }
-      JS_ReportErrorNumberUTF8(cx, my_GetErrorMessage, nullptr,
-                               JSSMSG_ASSERT_EQ_FAILED_MSG, actual, expected,
-                               bytes2.get());
-    }
-    return false;
-  }
   args.rval().setUndefined();
   return true;
 }
@@ -10177,7 +10146,7 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "quit()",
 "  Quit the shell."),
 
-    JS_FN_HELP("assertEq", AssertEq, 2, 0,
+    JS_FN_HELP("assertEq", js::shell::AssertEq, 2, 0,
 "assertEq(actual, expected[, msg])",
 "  Throw if the first two arguments are not the same (both +0 or both -0,\n"
 "  both NaN, or non-zero and ===)."),
@@ -11888,6 +11857,12 @@ static JSObject* NewGlobalObject(JSContext* cx, JS::RealmOptions& options,
         !JS_DefineProfilingFunctions(cx, glob)) {
       return nullptr;
     }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+    if (gShellExtension && gShellExtension->defineGlobals &&
+        !gShellExtension->defineGlobals(cx, glob)) {
+      return nullptr;
+    }
+#endif
 #ifdef FUZZING_JS_FUZZILLI
     if (!JS_DefineFunctions(cx, glob, shell_function_fuzzilli_hash)) {
       return nullptr;
@@ -12144,9 +12119,40 @@ auto minVal(T a, Ts... args) {
       }
 
       RootedValue rval(cx);
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+      // -e code is the primary script only when there is no positional
+      // script; an extension sees it compiled and executed as a script.
+      if (gShellExtension && gShellExtension->scriptCompiled &&
+          !op->getStringArg("script")) {
+        opts.setIsRunOnce(true).setNoScriptRval(true);
+        if (gShellExtension->wantsFullParse &&
+            gShellExtension->wantsFullParse(/* primary = */ true)) {
+          opts.setForceFullParse();
+        }
+        RootedScript script(cx, JS::Compile(cx, opts, srcBuf));
+        if (!script) {
+          return false;
+        }
+        if (!gShellExtension->scriptCompiled(cx, script,
+                                             /* primary = */ true)) {
+          return false;
+        }
+        if (!JS_ExecuteScript(cx, script)) {
+          return false;
+        }
+        if (gShellExtension->scriptExecuted &&
+            !gShellExtension->scriptExecuted(cx, script,
+                                             /* primary = */ true)) {
+          return false;
+        }
+      } else if (!JS::Evaluate(cx, opts, srcBuf, &rval)) {
+        return false;
+      }
+#else
       if (!JS::Evaluate(cx, opts, srcBuf, &rval)) {
         return false;
       }
+#endif
 
       codeChunks.popFront();
       if (sc->quitting) {
@@ -12179,9 +12185,15 @@ auto minVal(T a, Ts... args) {
     if (!pathUtf8) {
       return false;
     }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+    processingPrimaryScript = true;
+#endif
     if (!Process(cx, pathUtf8.get(), false, FileScript)) {
       return false;
     }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+    processingPrimaryScript = false;
+#endif
   }
 
   if (op->getBoolOption('i')) {
@@ -12694,6 +12706,12 @@ Variant<JSAndShellContext, int> js::shell::ShellMain(int argc, char** argv,
   if (!InitOptionParser(op)) {
     return AsVariant(EXIT_FAILURE);
   }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (gShellExtension && gShellExtension->addOptions &&
+      !gShellExtension->addOptions(op)) {
+    return AsVariant(EXIT_FAILURE);
+  }
+#endif
 
   switch (op.parseArgs(argc, argv)) {
     case OptionParser::EarlyExit:
@@ -12714,6 +12732,12 @@ Variant<JSAndShellContext, int> js::shell::ShellMain(int argc, char** argv,
   if (!SetGlobalOptionsPreJSInit(op)) {
     return AsVariant(EXIT_FAILURE);
   }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (gShellExtension && gShellExtension->optionsParsed &&
+      !gShellExtension->optionsParsed(op)) {
+    return AsVariant(EXIT_FAILURE);
+  }
+#endif
 
   if (!JS::SetLoggingInterface(shellLoggingInterface)) {
     return AsVariant(1);
@@ -12755,6 +12779,13 @@ Variant<JSAndShellContext, int> js::shell::ShellMain(int argc, char** argv,
   JS_SetSetUseCounterCallback(cx, SetUseCounterCallback);
 
   auto destroyCx = MakeScopeExit([cx] { JS_DestroyContext(cx); });
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (gShellExtension && gShellExtension->contextCreated &&
+      !gShellExtension->contextCreated(cx)) {
+    return AsVariant(1);
+  }
+#endif
 
   UniquePtr<ShellContext> sc =
       MakeUnique<ShellContext>(cx, ShellContext::MainThread);
@@ -12861,14 +12892,15 @@ Variant<JSAndShellContext, int> js::shell::ShellMain(int argc, char** argv,
   }
 }
 
-// N.B.: When Wizer support is enabled, a separate main() is used.
-#ifndef JS_SHELL_WIZER
+// N.B.: When Wizer support is enabled, a separate main() is used, and the
+// `jsshell` library build leaves main() to the embedding shell.
+#if !defined(JS_SHELL_WIZER) && !defined(JS_SHELL_LIBRARY)
 
 int main(int argc, char** argv) {
   return ShellMain(argc, argv, /* returnContext = */ false).as<int>();
 }
 
-#endif  // !JS_SHELL_WIZER
+#endif  // !JS_SHELL_WIZER && !JS_SHELL_LIBRARY
 
 bool InitOptionParser(OptionParser& op) {
   op.setDescription(

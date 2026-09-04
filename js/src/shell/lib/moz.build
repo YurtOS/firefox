@@ -1,0 +1,54 @@
+# -*- Mode: python; indent-tabs-mode: nil; tab-width: 40 -*-
+# vim: set filetype=python:
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+# The JS shell as a static library (--enable-external-compiler-hooks): the
+# shell minus main() and the wizer entry point, so an external compiler tier
+# can link its own shell around js::shell::ShellMain with a ShellExtension
+# registered. The archive folds in the shell's static dependencies (mozglue,
+# mfbt); the engine itself stays in libjs_static.a. Everything an external
+# link needs is installed under dist/lib.
+
+Library("jsshell")
+FORCE_STATIC_LIB = True
+NO_EXPAND_LIBS = True
+
+USE_LIBS += ["mozglue"]
+
+include("../../js-config.mozbuild")
+include("../../js-cxxflags.mozbuild")
+
+UNIFIED_SOURCES += [
+    "../js.cpp",
+    "../jsoptparse.cpp",
+    "../jsshell.cpp",
+    "../ModuleLoader.cpp",
+    "../OSObject.cpp",
+    "../ShellModuleObjectWrapper.cpp",
+    "../WasmTesting.cpp",
+]
+
+SOURCES += [
+    "../CommonShellGlobals.cpp",
+]
+
+DEFINES["EXPORT_JS_API"] = True
+DEFINES["MOZ_HAS_MOZGLUE"] = True
+DEFINES["JS_SHELL_LIBRARY"] = True
+
+LOCAL_INCLUDES += [
+    "!../..",
+    "../..",
+    "/third_party/wizer",
+]
+
+rust_profile = "debug" if CONFIG["MOZ_DEBUG_RUST"] else "release"
+
+OBJDIR_FILES.dist.lib += [
+    "!/build/pure_virtual/libpure_virtual.a",
+    "!/js/src/build/libjs_static.a",
+    "!/js/src/shell/lib/libjsshell.a",
+    "!/%s/%s/libjsrust.a" % (CONFIG["RUST_TARGET"], rust_profile),
+]

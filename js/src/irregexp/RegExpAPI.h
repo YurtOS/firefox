@@ -45,6 +45,13 @@ class TokenStreamAnyChars;
 
 namespace irregexp {
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+// Status words an external matcher may report, pinned to the V8 matcher's
+// own values (static_asserts in RegExpAPI.cpp).
+constexpr int32_t kExternalMatcherSuccess = 1;
+constexpr int32_t kExternalMatcherFailure = 0;
+#endif
+
 Isolate* CreateIsolate(JSContext* cx);
 void TraceIsolate(JSTracer* trc, Isolate* isolate);
 void DestroyIsolate(Isolate* isolate);

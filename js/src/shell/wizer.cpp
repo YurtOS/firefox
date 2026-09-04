@@ -46,8 +46,10 @@ int main(int argc, char** argv) {
 
     // Look up a function called "main" in the global.
     JS::Rooted<JS::Value> ret(cx);
-    if (!JS_CallFunctionName(cx, cx->global(), "main",
-                             JS::HandleValueArray::empty(), &ret)) {
+    // `glob`, not `cx->global()`: the latter is a Handle<GlobalObject*>,
+    // which does not convert to the Handle<JSObject*> this takes.
+    if (!JS_CallFunctionName(cx, glob, "main", JS::HandleValueArray::empty(),
+                             &ret)) {
       fprintf(stderr, "Failed to call main() in Wizened JS source!\n");
       abort();
     }

@@ -138,6 +138,10 @@ bool JSContext::init() {
     return false;
   }
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  updateExternalCompilerHooks();
+#endif
+
 #ifdef DEBUG
   // Set the initialized_ last, so that ProtectedData checks will allow us to
   // initialize this context before it becomes the runtime's active context.
@@ -212,6 +216,10 @@ void js::DestroyContext(JSContext* cx) {
   MOZ_ASSERT(!cx->activation(), "Shouldn't destroy context with activations");
 
   cx->checkNoGCRooters();
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  cx->destroyExternalCompilerState();
+#endif
 
   // Cancel all off thread compiles. Completed compiles may try to
   // interrupt this context. See HelperThread::handleIonWorkload.
@@ -1547,6 +1555,13 @@ void JSContext::trace(JSTracer* trc) {
   }
 #ifdef ENABLE_WASM_JSPI
   wasm().promiseIntegration.trace(trc);
+#endif
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // Traced on every GC, minor and major, unlike an embedding extra-roots
+  // tracer: the external tier's frames may hold nursery pointers.
+  if (externalCompilerHooks_ && externalCompilerHooks_->traceRoots) {
+    externalCompilerHooks_->traceRoots(this, trc);
+  }
 #endif
 }
 

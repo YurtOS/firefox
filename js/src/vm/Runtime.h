@@ -62,6 +62,11 @@
 #include "wasm/WasmTypeDecls.h"
 
 struct JSAtomState;
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+namespace JS {
+struct ExternalCompilerHooks;
+}
+#endif
 struct JSClass;
 struct JSErrorInterceptor;
 struct JSWrapObjectCallbacks;
@@ -311,6 +316,13 @@ struct JSRuntime {
 
   /* Space for interpreter frames. */
   js::MainThreadData<js::InterpreterStack> interpreterStack_;
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // The external compiler tier's hook table (js/ExternalCompilerHooks.h) and
+  // the union of its store masks. Plain fields: the slot-store choke reaches
+  // them through an object's runtime from whatever thread stores.
+  JS::ExternalCompilerHooks* externalCompilerHooks_ = nullptr;
+  uint32_t externalObjectStoreMask_ = 0;
+#endif
 
 #ifdef ENABLE_PORTABLE_BASELINE_INTERP
   /* Space for portable baseline interpreter frames. */
@@ -319,6 +331,13 @@ struct JSRuntime {
 
  public:
   js::InterpreterStack& interpreterStack() { return interpreterStack_.ref(); }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  JS::ExternalCompilerHooks* externalCompilerHooks() const {
+    return externalCompilerHooks_;
+  }
+  uint32_t externalObjectStoreMask() const { return externalObjectStoreMask_; }
+  void setExternalCompilerHooks(JS::ExternalCompilerHooks* hooks);
+#endif
 #ifdef ENABLE_PORTABLE_BASELINE_INTERP
   js::PortableBaselineStack& portableBaselineStack() {
     return portableBaselineStack_.ref();

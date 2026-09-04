@@ -130,6 +130,11 @@ bool js::NativeObject::toDictionaryMode(JSContext* cx,
 
   obj->setShape(shape);
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  obj->externalStructuralChange(
+      cx, JS::ExternalObjectMutation::ToDictionary);
+#endif
+
   MOZ_ASSERT(obj->inDictionaryMode());
   obj->setDictionaryModeSlotSpan(span);
 
@@ -340,7 +345,15 @@ bool NativeObject::addProperty(JSContext* cx, Handle<NativeObject*> obj,
   }
 
   if (auto* shape = LookupShapeForAdd(obj->shape(), id, flags, slot)) {
-    return obj->setShapeAndAddNewSlot(cx, shape, *slot);
+    if (!obj->setShapeAndAddNewSlot(cx, shape, *slot)) {
+      return false;
+    }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+    if (obj->externalWord()) {
+      ExternalPropertyAdded(cx, obj, id, *slot);
+    }
+#endif
+    return true;
   }
 
   if (obj->inDictionaryMode()) {
@@ -390,6 +403,11 @@ bool NativeObject::addProperty(JSContext* cx, Handle<NativeObject*> obj,
   if (!obj->setShapeAndAddNewSlot(cx, newShape, *slot)) {
     return false;
   }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (obj->externalWord()) {
+    ExternalPropertyAdded(cx, obj, id, *slot);
+  }
+#endif
 
   // Add the new shape to the old shape's shape cache, to optimize this shape
   // transition. Don't do this if we just allocated a new shape, because that
@@ -522,6 +540,11 @@ bool NativeObject::changeProperty(JSContext* cx, Handle<NativeObject*> obj,
                                   HandleId id, PropertyFlags flags,
                                   uint32_t* slotOut) {
   MOZ_ASSERT(!id.isVoid());
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  obj->externalStructuralChange(
+      cx, JS::ExternalObjectMutation::ChangeProperty);
+#endif
 
   AutoCheckShapeConsistency check(obj);
   AssertValidArrayIndex(obj, id);
@@ -696,6 +719,11 @@ bool NativeObject::changeCustomDataPropAttributes(JSContext* cx,
   AssertValidArrayIndex(obj, id);
   AssertValidCustomDataProp(obj, flags);
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  obj->externalStructuralChange(
+      cx, JS::ExternalObjectMutation::ChangeCustomDataProp);
+#endif
+
   Rooted<PropMap*> map(cx, obj->shape()->propMap());
   uint32_t mapLength = obj->shape()->propMapLength();
 
@@ -838,6 +866,11 @@ void NativeObject::setShapeAndRemoveLastSlot(JSContext* cx,
 bool NativeObject::removeProperty(JSContext* cx, Handle<NativeObject*> obj,
                                   HandleId id) {
   AutoCheckShapeConsistency check(obj);
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  obj->externalStructuralChange(
+      cx, JS::ExternalObjectMutation::RemoveProperty);
+#endif
 
   Rooted<PropMap*> map(cx, obj->shape()->propMap());
   uint32_t mapLength = obj->shape()->propMapLength();
@@ -1008,6 +1041,11 @@ bool NativeObject::freezeOrSealProperties(JSContext* cx,
                                           IntegrityLevel level) {
   AutoCheckShapeConsistency check(obj);
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  obj->externalStructuralChange(
+      cx, JS::ExternalObjectMutation::FreezeOrSeal);
+#endif
+
   if (!Watchtower::watchFreezeOrSeal(cx, obj, level)) {
     return false;
   }
@@ -1076,6 +1114,14 @@ bool JSObject::setFlag(JSContext* cx, HandleObject obj, ObjectFlag flag) {
 
   ObjectFlags objectFlags = obj->shape()->objectFlags();
   objectFlags.setFlag(flag);
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // An object flag changes the object's semantics (Watchtower watches,
+  // NotExtensible, Frozen), so the external tier's word no longer describes
+  // it. Rare by construction: flags are set once per object.
+  obj->externalStructuralChange(
+      cx, JS::ExternalObjectMutation::ObjectFlagChange);
+#endif
 
   uint32_t numFixed =
       obj->is<NativeObject>() ? obj->as<NativeObject>().numFixedSlots() : 0;

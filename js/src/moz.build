@@ -50,6 +50,8 @@ with Files("builtin/intl/*"):
 if not CONFIG["JS_DISABLE_SHELL"]:
     DIRS += [
         "rust",
+    ]
+    DIRS += [
         "shell",
     ]
 
@@ -144,6 +146,7 @@ EXPORTS.js += [
     "../public/ErrorInterceptor.h",
     "../public/ErrorReport.h",
     "../public/Exception.h",
+    "../public/ExternalCompilerHooks.h",
     "../public/ForOfIterator.h",
     "../public/GCAnnotations.h",
     "../public/GCAPI.h",
@@ -498,6 +501,31 @@ if CONFIG["ENABLE_PORTABLE_BASELINE_INTERP"]:
         "vm/PortableBaselineInterpret.cpp",
     ]
 
+if CONFIG["JS_EXTERNAL_COMPILER_HOOKS"]:
+    UNIFIED_SOURCES += [
+        "vm/ExternalCompilerHooks.cpp",
+    ]
+    # Export the private headers (source and generated) an external compiler
+    # tier builds against, mirroring js/src under dist/include-private, and
+    # the compile flags this library was built with.
+    GeneratedFile(
+        "external-headers.stamp",
+        script="build/export_private_headers.py",
+        entry_point="main",
+        inputs=[
+            "!selfhosted.out.h",
+            "!frontend/ReservedWordsGenerated.h",
+            "!gc/StatsPhasesGenerated.h",
+            "!jit/ABIFunctionTypeGenerated.h",
+            "!jit/AtomicOperationsGenerated.h",
+            "!jit/CacheIROpsGenerated.h",
+            "!jit/LIROpsGenerated.h",
+            "!jit/MIROpsGenerated.h",
+            "!wasm/WasmBuiltinModuleGenerated.h",
+        ],
+        force=True,
+    )
+
 if CONFIG["ENABLE_EXPLICIT_RESOURCE_MANAGEMENT"]:
     UNIFIED_SOURCES += [
         "builtin/AsyncDisposableStackObject.cpp",
@@ -705,6 +733,4 @@ if CONFIG["USE_LIBZ_RS"]:
     DEFINES["USE_LIBZ_RS"] = True
 
 if CONFIG["ENABLE_JS_PBL_WEVAL"]:
-    LOCAL_INCLUDES += [
-        "../../third_party/weval"
-    ]
+    LOCAL_INCLUDES += ["../../third_party/weval"]

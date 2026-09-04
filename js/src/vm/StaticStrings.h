@@ -97,6 +97,13 @@ class StaticStrings {
     return unitStaticTable[c];
   }
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // The raw unit-string table base, for an external compiler tier's inline
+  // s[i] on linear latin1 strings (every latin1 char has a static unit
+  // string).
+  JSAtom* const* unitStaticTableBase() const { return unitStaticTable; }
+#endif
+
   /* May not return atom, returns null on (reported) failure. */
   inline JSLinearString* getUnitString(JSContext* cx, char16_t c);
 

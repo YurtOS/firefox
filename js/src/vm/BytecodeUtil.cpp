@@ -2467,8 +2467,18 @@ static bool DecompileArgumentFromStack(JSContext* cx, int formalIndex,
    * called the intrinsic.
    */
   FrameIter frameIter(cx);
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // An external tier's frames are invisible to FrameIter, so the expected
+  // frame may be missing entirely; fall back to no decompiled name rather
+  // than walking some unrelated frame.
+  if (frameIter.done() || !frameIter.hasScript() ||
+      !frameIter.script()->selfHosted()) {
+    return true;
+  }
+#else
   MOZ_ASSERT(!frameIter.done());
   MOZ_ASSERT(frameIter.script()->selfHosted());
+#endif
 
   /*
    * Get the second-to-top frame, the non-self-hosted caller of the builtin

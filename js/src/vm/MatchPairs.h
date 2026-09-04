@@ -125,6 +125,16 @@ class VectorMatchPairs : public MatchPairs {
  protected:
   friend class RegExpShared;
   friend class RegExpStatics;
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+ public:
+  // An external compiler tier's regexp fast paths allocate their own pairs
+  // without going through RegExpShared::execute.
+  bool externalAllocOrExpandArray(size_t pairCount) {
+    return allocOrExpandArray(pairCount);
+  }
+
+ protected:
+#endif
 
   /* MatchPair buffer allocator: set pairs_ and pairCount_. */
   bool allocOrExpandArray(size_t pairCount);

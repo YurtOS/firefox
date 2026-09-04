@@ -121,6 +121,11 @@ class RegExpShared
   uint32_t maxRegisters_ = 0;
   uint32_t ticks_ = 0;
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // The external tier's per-RegExpShared word (js/ExternalCompilerHooks.h).
+  uint32_t externalWord_ = 0;
+#endif
+
   // With duplicate named capture groups, it's possible that the number of
   // distinct named groups is less than the total number of named captures.
   // If they are equal, we used the namedCaptureIndices_ array directly to
@@ -215,6 +220,11 @@ class RegExpShared
   void updateMaxRegisters(uint32_t numRegisters) {
     maxRegisters_ = std::max(maxRegisters_, numRegisters);
   }
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  uint32_t externalWord() const { return externalWord_; }
+  void setExternalWord(uint32_t v) { externalWord_ = v; }
+#endif
 
   uint32_t numNamedCaptures() const { return numNamedCaptures_; }
   uint32_t numDistinctNamedCaptures() const {
