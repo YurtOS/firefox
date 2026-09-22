@@ -15,6 +15,9 @@
 #include "vm/JSContext-inl.h"
 #include "vm/JSObject-inl.h"
 #include "vm/NativeObject-inl.h"
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+#  include "js/ExternalCompilerHooks.h"
+#endif
 
 namespace js {
 
@@ -150,6 +153,14 @@ inline JSAtom* JSFunction::infallibleGetUnresolvedName(JSContext* cx) {
 
   size_t propertyCountEstimate =
       script->immutableScriptData()->propertyCountEstimate;
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (cx->externalCompilerHooks()) {
+    propertyCountEstimate = std::max(
+        propertyCountEstimate,
+        size_t(cx->externalCompilerHooks()->minConstructorThisSlots));
+  }
+#endif
 
   // Choose the alloc assuming at least the default NewObjectKind slots, but
   // bigger if our estimate shows we need it.

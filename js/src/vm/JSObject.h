@@ -11,6 +11,7 @@
 
 #include "jsfriendapi.h"
 
+#include "js/ExternalCompilerHooks.h"
 #include "js/friend/ErrorMessages.h"  // JSErrNum
 #include "js/GCVector.h"
 #include "js/shadow/Zone.h"  // JS::shadow::Zone
@@ -96,7 +97,13 @@ class JSObject
   // Like shape(), but uses getAtomic to read the header word.
   js::Shape* shapeMaybeForwarded() const { return headerPtrAtomic(); }
 
-#ifndef JS_64BIT
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // The external tier's per-object word (js/ExternalCompilerHooks.h), zeroed
+  // at birth in initShape. Pointer-sized, not 32-bit: on 32-bit platforms it
+  // takes the place of the alignment padding below, so the object does not
+  // grow.
+  uintptr_t externalWord_;
+#elif !defined(JS_64BIT)
   // Ensure fixed slots have 8-byte alignment on 32-bit platforms.
   uint32_t padding_;
 #endif
@@ -151,7 +158,39 @@ class JSObject
     // shape we still have to initialize.
     MOZ_ASSERT(Cell::zone() == shape->zone());
     initHeaderPtr(shape);
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+    externalWord_ = 0;
+#endif
   }
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // The external tier's per-object word. Its bits are the tier's own; the
+  // engine only resets it on a structural change and applies the tier's
+  // slot-store masks (js/ExternalCompilerHooks.h).
+  uintptr_t externalWord() const { return externalWord_; }
+  void setExternalWord(uintptr_t w) { externalWord_ = w; }
+  static constexpr size_t offsetOfExternalWord() {
+    return offsetof(JSObject, externalWord_);
+  }
+  // Structural-change choke: the word describes the object's current
+  // structure, so a change resets it and reports the old word.
+  void externalStructuralChange(JSContext* cx, JS::ExternalObjectMutation why) {
+    uintptr_t w = externalWord_;
+    if (MOZ_LIKELY(w == 0)) {
+      return;
+    }
+    externalWord_ = 0;
+    js::ExternalObjectDemoted(cx, this, w, why);
+  }
+  // Slot-store choke: one load and a branch unless the object carries an
+  // external word; the store policy is applied out of line.
+  MOZ_ALWAYS_INLINE void externalStoreCheck(const JS::Value& v) {
+    if (MOZ_LIKELY(externalWord_ == 0)) {
+      return;
+    }
+    js::ExternalObjectStore(this, v);
+  }
+#endif
   void setShape(js::Shape* shape) {
     MOZ_ASSERT(maybeCCWRealm() == shape->realm());
     setHeaderPtr(shape);

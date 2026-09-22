@@ -56,6 +56,19 @@ JSObject* InitRegExpClass(JSContext* cx, HandleObject obj);
                                            const MatchPairs& matches,
                                            MutableHandleValue rval);
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+// RegExp.cpp internals reused by an external compiler tier's regexp fast
+// paths. `SetLastIndex` is declared without its default template argument
+// (RegExp.cpp's definition supplies it), so callers here must name the
+// specialization.
+extern int32_t CreateRegExpSearchResult(JSContext* cx,
+                                        const MatchPairs& matches);
+
+template <bool CalledFromJit>
+bool SetLastIndex(JSContext* cx, Handle<RegExpObject*> regexp,
+                  int32_t lastIndex);
+#endif
+
 [[nodiscard]] extern bool RegExpMatcher(JSContext* cx, unsigned argc,
                                         Value* vp);
 

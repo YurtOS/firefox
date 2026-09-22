@@ -5,6 +5,8 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 GeckoProgram("js", linkage=None)
+if CONFIG["JS_EXTERNAL_COMPILER_HOOKS"]:
+    DIRS += ["lib"]
 if CONFIG["JS_BUNDLED_EDITLINE"]:
     DIRS += ["../editline"]
     USE_LIBS += ["editline"]
@@ -23,6 +25,10 @@ UNIFIED_SOURCES += [
     "ShellModuleObjectWrapper.cpp",
     "WasmTesting.cpp",
     "wizer.cpp",
+]
+
+SOURCES += [
+    "CommonShellGlobals.cpp",
 ]
 
 if CONFIG["FUZZING_INTERFACES"]:

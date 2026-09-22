@@ -1411,6 +1411,10 @@ class alignas(uintptr_t) PrivateScriptData final
     return sizeof(PrivateScriptData);
   }
 
+  static constexpr size_t offsetOfNGCThings() {
+    return offsetof(PrivateScriptData, ngcthings);
+  }
+
   // Accessors for typed array spans.
   mozilla::Span<JS::GCCellPtr> gcthings() {
     Offset offset = offsetOfGCThings();
@@ -1576,6 +1580,13 @@ class BaseScript : public gc::TenuredCellWithNonGCPointer<uint8_t> {
   UniquePtr<Weval> weval_ = {};
 #endif
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // The external tier's pointer-sized per-script word
+  // (js/ExternalCompilerHooks.h): 0 means the tier has no code for this
+  // script and the engine never consults it.
+  uintptr_t externalTierWord_ = 0;
+#endif
+
   // End of fields.
 
   BaseScript(uint8_t* stubEntry, JSFunction* function,
@@ -1598,6 +1609,14 @@ class BaseScript : public gc::TenuredCellWithNonGCPointer<uint8_t> {
                                    uint32_t immutableFlags);
 
   bool isUsingInterpreterTrampoline(JSRuntime* rt) const;
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  uintptr_t externalTierWord() const { return externalTierWord_; }
+  void setExternalTierWord(uintptr_t w) { externalTierWord_ = w; }
+  static constexpr size_t offsetOfExternalTierWord() {
+    return offsetof(BaseScript, externalTierWord_);
+  }
+#endif
 
   // Canonical function for the script, if it has a function. For top-level
   // scripts this is nullptr.
@@ -1750,6 +1769,9 @@ class BaseScript : public gc::TenuredCellWithNonGCPointer<uint8_t> {
   }
   static constexpr size_t offsetOfWarmUpData() {
     return offsetof(BaseScript, warmUpData_);
+  }
+  static constexpr size_t offsetOfFunction() {
+    return offsetof(BaseScript, function_);
   }
 
 #if defined(DEBUG) || defined(JS_JITSPEW)

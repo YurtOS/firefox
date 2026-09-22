@@ -13,6 +13,18 @@
 
 #include "js/TypeDecls.h"
 
+/*
+ * Bytecode semantics version, for consumers of the opcode table outside the
+ * engine (an external compiler tier compiles this bytecode, see
+ * js/public/ExternalCompilerHooks.h). Bump it whenever the meaning of the
+ * bytecode changes: an opcode's semantics, operand format, stack effect or
+ * number, or a change in what the bytecode emitter produces for a construct,
+ * even when the FOR_EACH_OPCODE table below keeps the same shape. A consumer
+ * compares it against the version it was written for and refuses to build
+ * on a mismatch, so a bump is the signal that its lowerings need review.
+ */
+#define JSOP_SEMANTICS_VERSION 1
+
 // clang-format off
 /*
  * [SMDOC] Bytecode Definitions

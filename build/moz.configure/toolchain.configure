@@ -677,6 +677,14 @@ def check_compiler(configure_cache, compiler, language, target, android_version)
     else:
         toolchain = target.toolchain
 
+    # clang 22 deprecates the bare wasm32-wasi target name, and the warning
+    # makes every flag probe fail; older clangs ship a sysroot and compiler-rt
+    # laid out under the plain name only. Only the --target flag changes; the
+    # sysroot keeps the plain name.
+    target_triple = toolchain
+    if target.os == "WASI" and info.type == "clang" and info.version >= "22.0":
+        target_triple = "%s-wasip1" % target.cpu
+
     if info.type == "clang":
         # Add the target explicitly when the target is aarch64 macosx, because
         # the Xcode clang target is named differently, and we need to work around
@@ -689,7 +697,7 @@ def check_compiler(configure_cache, compiler, language, target, android_version)
                 flags.append("--target=arm64-apple-darwin")
             has_target = True
         elif target.os == "iOS":
-            target_flag = "--target=%s" % toolchain
+            target_flag = "--target=%s" % target_triple
             if target_flag not in compiler:
                 flags.append(target_flag)
             has_target = True
@@ -699,7 +707,7 @@ def check_compiler(configure_cache, compiler, language, target, android_version)
             or not info.endianness
             or info.endianness != target.endianness
         ):
-            flags.append("--target=%s" % toolchain)
+            flags.append("--target=%s" % target_triple)
             has_target = True
 
         # Add target flag when there is an OS mismatch (e.g. building for Android on
@@ -708,7 +716,7 @@ def check_compiler(configure_cache, compiler, language, target, android_version)
         elif target.os in OS_preprocessor_checks and (
             not info.os or info.os != target.os
         ):
-            flags.append("--target=%s" % toolchain)
+            flags.append("--target=%s" % target_triple)
             has_target = True
 
     if not has_target and (not info.cpu or info.cpu != target.cpu):
@@ -718,9 +726,9 @@ def check_compiler(configure_cache, compiler, language, target, android_version)
         elif (info.cpu, target.cpu) in same_arch:
             flags.append("-m64")
         elif info.type == "clang-cl" and target.cpu == "aarch64":
-            flags.append("--target=%s" % toolchain)
+            flags.append("--target=%s" % target_triple)
         elif info.type == "clang":
-            flags.append("--target=%s" % toolchain)
+            flags.append("--target=%s" % target_triple)
 
     return namespace(
         type=info.type,

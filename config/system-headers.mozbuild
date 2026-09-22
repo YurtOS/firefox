@@ -835,6 +835,7 @@ system_headers = [
     "sys/link.h",
     "sys/locking.h",
     "syslog.h",
+    "system_error",
     "sys/lwp.h",
     "sys/machine.h",
     "sys/mman.h",

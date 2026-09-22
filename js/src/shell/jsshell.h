@@ -279,6 +279,31 @@ extern ShellContext* GetShellContext(JSContext* cx);
 mozilla::Variant<JSAndShellContext, int> ShellMain(int argc, char** argv,
                                                    bool retainContext);
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+}  // namespace shell
+namespace cli {
+class OptionParser;
+}  // namespace cli
+namespace shell {
+
+// Extension points an external compiler tier's own shell registers before
+// calling ShellMain (built as the `jsshell` library under
+// --enable-external-compiler-hooks). Every member may be null. `primary`
+// marks the positional script, or -e code when there is no positional script.
+struct ShellExtension {
+  bool (*addOptions)(cli::OptionParser& op);
+  bool (*optionsParsed)(cli::OptionParser& op);
+  bool (*contextCreated)(JSContext* cx);
+  bool (*defineGlobals)(JSContext* cx, JS::HandleObject global);
+  bool (*wantsFullParse)(bool primary);
+  bool (*scriptCompiled)(JSContext* cx, JS::HandleScript script, bool primary);
+  bool (*scriptExecuted)(JSContext* cx, JS::HandleScript script, bool primary);
+};
+
+void SetShellExtension(const ShellExtension* ext);
+const ShellExtension* GetShellExtension();
+#endif
+
 } /* namespace shell */
 } /* namespace js */
 

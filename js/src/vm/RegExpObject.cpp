@@ -724,6 +724,19 @@ RegExpRunStatus RegExpShared::execute(JSContext* cx,
     return RegExpRunStatus::Error;
   }
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // An external matcher decides the match here, skipping the irregexp
+  // jit-choice and interpreter layering below, or declines.
+  if (cx->externalCompilerHooks() && cx->externalCompilerHooks()->regexpMatch) {
+    RegExpRunStatus externalStatus;
+    if (cx->externalCompilerHooks()->regexpMatch(cx, re, input, start, matches,
+                                            input->hasLatin1Chars(),
+                                            &externalStatus)) {
+      return externalStatus;
+    }
+  }
+#endif
+
   uint32_t interruptRetries = 0;
   const uint32_t maxInterruptRetries = 4;
   do {

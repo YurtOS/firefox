@@ -371,7 +371,7 @@ struct JS_PUBLIC_API JSContext : public JS::RootingContext,
   }
 
   // For JIT use.
-  static size_t offsetOfZone() { return offsetof(JSContext, zone_); }
+  static constexpr size_t offsetOfZone() { return offsetof(JSContext, zone_); }
 
   // Current global. This is only safe to use within the scope of the
   // AutoRealm from which it's called.
@@ -396,7 +396,9 @@ struct JS_PUBLIC_API JSContext : public JS::RootingContext,
   JSRuntime* runtime() { return runtime_; }
   const JSRuntime* runtime() const { return runtime_; }
 
-  static size_t offsetOfRealm() { return offsetof(JSContext, realm_); }
+  static constexpr size_t offsetOfRealm() {
+    return offsetof(JSContext, realm_);
+  }
 
   friend class JS::AutoSaveExceptionState;
   friend class js::jit::DebugModeOSRVolatileJitFrameIter;
@@ -468,6 +470,25 @@ struct JS_PUBLIC_API JSContext : public JS::RootingContext,
   js::InterpreterStack& interpreterStack() {
     return runtime()->interpreterStack();
   }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+ private:
+  // The runtime's external compiler hook table, cached here, and the tier's
+  // opaque per-context state (js/ExternalCompilerHooks.h).
+  JS::ExternalCompilerHooks* externalCompilerHooks_ = nullptr;
+  void* externalCompilerState_ = nullptr;
+
+ public:
+  JS::ExternalCompilerHooks* externalCompilerHooks() const {
+    return externalCompilerHooks_;
+  }
+  void* getExternalCompilerState() const { return externalCompilerState_; }
+  void setExternalCompilerState(void* state) {
+    externalCompilerState_ = state;
+  }
+  // Re-cache the runtime's table, destroying and recreating the state.
+  void updateExternalCompilerHooks();
+  void destroyExternalCompilerState();
+#endif
 #ifdef ENABLE_PORTABLE_BASELINE_INTERP
   js::PortableBaselineStack& portableBaselineStack() {
     return runtime()->portableBaselineStack();

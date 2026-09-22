@@ -579,6 +579,12 @@ static bool ScriptOffset(JSContext* cx, const Value& v, size_t* offsetp) {
   bool ok = v.isNumber();
   if (ok) {
     d = v.toNumber();
+    // Range-check before converting: a double outside size_t's range makes
+    // the conversion undefined, and a compiler may then fold the equality
+    // check below away.
+    ok = d >= 0 && d <= double(SIZE_MAX);
+  }
+  if (ok) {
     off = size_t(d);
   }
   if (!ok || off != d) {

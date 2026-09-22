@@ -80,6 +80,10 @@
 #  include "vtune/VTuneWrapper.h"
 #endif
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+#  include "js/ExternalCompilerHooks.h"
+#endif
+
 #include "gc/Marking-inl.h"
 #include "vm/BytecodeIterator-inl.h"
 #include "vm/BytecodeLocation-inl.h"
@@ -1677,6 +1681,19 @@ bool ScriptSource::assignSource(FrontendContext* fc,
                                 SourceText<Unit>& srcBuf) {
   MOZ_ASSERT(data.is<Missing>(),
              "source assignment should only occur on fresh ScriptSources");
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // Source text is entering the frontend, and this is the one place every
+  // compile-from-source passes through (delazification reuses an existing
+  // ScriptSource and does not come here). Report before anything can run,
+  // and before the option-dependent early returns below.
+  if (JSContext* cx = fc->maybeCurrentJSContext()) {
+    if (cx->externalCompilerHooks() &&
+        cx->externalCompilerHooks()->sourceAssigned) {
+      cx->externalCompilerHooks()->sourceAssigned(cx);
+    }
+  }
+#endif
 
   mutedErrors_ = options.mutedErrors();
   delazificationMode_ = options.eagerDelazificationStrategy();

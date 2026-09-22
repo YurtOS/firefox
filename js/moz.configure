@@ -207,10 +207,12 @@ option(
     help="{Support|Do not support} wevaling the PBL interpreter",
 )
 
+
 @depends("--enable-portable-baseline-interp", "--enable-pbl-weval")
 def js_pbl_weval(pbl, weval):
     if pbl and weval:
         return True
+
 
 set_define("ENABLE_JS_PBL_WEVAL", js_pbl_weval)
 set_config("ENABLE_JS_PBL_WEVAL", js_pbl_weval)
@@ -263,6 +265,26 @@ set_config(
     depends_if("--enable-aot-ics-enforce")(lambda _: True),
 )
 
+# External compiler hooks: the object-model, script-entry, GC and regexp
+# hook surface an external compilation tier (such as NightMonkey) plugs into
+# (js/public/ExternalCompilerHooks.h), plus the private-header export and the
+# `jsshell` static library such a tier links its own shell against. Off by
+# default; an ordinary build is unaffected.
+option(
+    "--enable-external-compiler-hooks",
+    default=False,
+    help="{Enable|Disable} the external compiler tier hook surface",
+)
+
+
+@depends("--enable-external-compiler-hooks")
+def external_compiler_hooks(value):
+    if value:
+        return True
+
+
+set_config("JS_EXTERNAL_COMPILER_HOOKS", external_compiler_hooks)
+set_define("JS_EXTERNAL_COMPILER_HOOKS", external_compiler_hooks)
 
 # Enable JS Streams
 # ===================================================
@@ -281,6 +303,7 @@ def enable_js_streams(value):
 
 set_config("MOZ_JS_STREAMS", enable_js_streams)
 set_define("MOZ_JS_STREAMS", enable_js_streams)
+
 
 # JIT support
 # =======================================================

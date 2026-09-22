@@ -1344,6 +1344,13 @@ void JSObject::swap(JSContext* cx, HandleObject a, HandleObject b,
     }
   }
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  a->externalStructuralChange(
+      cx, JS::ExternalObjectMutation::Swap);
+  b->externalStructuralChange(
+      cx, JS::ExternalObjectMutation::Swap);
+#endif
+
   // Restore original unique IDs.
   if ((aid || bid) && (na || nb)) {
     if ((aid && !gc::SetOrUpdateUniqueId(cx, a, aid)) ||

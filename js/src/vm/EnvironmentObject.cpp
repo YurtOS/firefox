@@ -3907,6 +3907,16 @@ static bool InitGlobalOrEvalDeclarations(
                                       attrs)) {
           return false;
         }
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+        // A global lexical binding shadows any same-named global-object
+        // binding for every later read and write.
+        if (lexicalEnv->is<GlobalLexicalEnvironmentObject>() &&
+            cx->externalCompilerHooks() &&
+            cx->externalCompilerHooks()->globalLexicalShadowAdded) {
+          cx->externalCompilerHooks()->globalLexicalShadowAdded(
+              cx, id.get().asRawBits());
+        }
+#endif
 
         break;
       }
