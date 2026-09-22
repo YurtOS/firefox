@@ -7,31 +7,32 @@
 /*
  * Hooks for an external compilation tier layered on top of the engine.
  *
- * Built only with --enable-external-compiler-hooks (JS_EXTERNAL_COMPILER_HOOKS).
- * The engine reserves one 32-bit word per object, one per script and one per
- * RegExpShared for the external tier's use, calls the hook table registered
- * on the runtime at the points where the tier's assumptions about the heap or
- * control flow can be invalidated, and lets the tier take over script entry.
- * Each context caches the runtime's table and carries an opaque per-context
- * state the tier creates and destroys with the context. With no table
- * registered every hook site costs one load and a predictable branch.
+ * Built only with --enable-external-compiler-hooks
+ * (JS_EXTERNAL_COMPILER_HOOKS). The engine reserves one pointer-sized word per
+ * object, per script and per RegExpShared for the external tier's use, calls
+ * the hook table registered on the runtime at the points where the tier's
+ * assumptions about the heap or control flow can be invalidated, and lets the
+ * tier take over script entry. Each context caches the runtime's table and
+ * carries an opaque per-context state the tier creates and destroys with the
+ * context. With no table registered every hook site costs one load and a
+ * predictable branch.
  */
 
 #ifndef js_ExternalCompilerHooks_h
 #define js_ExternalCompilerHooks_h
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include "jstypes.h"
-
-#include "js/CallArgs.h"
-#include "js/Id.h"
-#include "js/RootingAPI.h"
-#include "js/TypeDecls.h"
-#include "js/Value.h"
-
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
+
+#  include <stddef.h>
+#  include <stdint.h>
+
+#  include "jstypes.h"
+
+#  include "js/CallArgs.h"
+#  include "js/Id.h"
+#  include "js/RootingAPI.h"
+#  include "js/TypeDecls.h"
+#  include "js/Value.h"
 
 namespace js {
 class AbstractGeneratorObject;
@@ -70,18 +71,18 @@ struct ExternalCompilerHooks {
   void* (*newContext)(JSContext* cx);
   void (*destroyContext)(JSContext* cx, void* state);
 
-  // Object model. Every object carries a 32-bit external word, zero at birth.
-  // A structural change (shape change, dictionary mode, freeze, flag change,
-  // swap) on an object whose word is nonzero resets the word to zero and
-  // reports the old word here.
-  void (*objectDemoted)(JSContext* cx, JSObject* obj, uint32_t oldWord,
+  // Object model. Every object carries a pointer-sized external word, zero
+  // at birth. A structural change (shape change, dictionary mode, freeze,
+  // flag change, swap) on an object whose word is nonzero resets the word to
+  // zero and reports the old word here.
+  void (*objectDemoted)(JSContext* cx, JSObject* obj, uintptr_t oldWord,
                         ExternalObjectMutation why);
   // Slot-store policy, applied on every engine-path slot store to an object
   // whose word intersects either mask: storeClearMask bits are cleared on any
   // store, storeNonNumberClearMask bits when the value is not a number. When
   // the word changes, objectDemoted fires with StoredValue.
-  uint32_t storeClearMask;
-  uint32_t storeNonNumberClearMask;
+  uintptr_t storeClearMask;
+  uintptr_t storeNonNumberClearMask;
   // A property was added to an object whose word is nonzero.
   void (*propertyAdded)(JSContext* cx, js::NativeObject* obj,
                         JS::PropertyKey id, uint32_t slot,
@@ -95,8 +96,9 @@ struct ExternalCompilerHooks {
                            uint64_t valueBits);
   void (*globalLexicalShadowAdded)(JSContext* cx, uint64_t idBits);
 
-  // Script entry. Every script carries a 32-bit external word, zero at
-  // birth; the engine consults these only for scripts whose word is nonzero.
+  // Script entry. Every script carries a pointer-sized external word, zero
+  // at birth; the engine consults these only for scripts whose word is
+  // nonzero.
   ExternalEnterStatus (*enterScript)(JSContext* cx, js::RunState& state);
   ExternalEnterStatus (*enterCall)(JSContext* cx, const JS::CallArgs& args,
                                    JSScript* script, bool constructing);
@@ -143,7 +145,7 @@ namespace js {
 
 // Out-of-line halves of the inline hook sites (vm/JSObject.h).
 extern JS_PUBLIC_API void ExternalObjectDemoted(JSContext* cx, JSObject* obj,
-                                                uint32_t oldWord,
+                                                uintptr_t oldWord,
                                                 JS::ExternalObjectMutation why);
 extern JS_PUBLIC_API void ExternalObjectStore(JSObject* obj,
                                               const JS::Value& v);

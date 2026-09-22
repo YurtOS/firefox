@@ -1581,9 +1581,10 @@ class BaseScript : public gc::TenuredCellWithNonGCPointer<uint8_t> {
 #endif
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
-  // The external tier's per-script word (js/ExternalCompilerHooks.h): 0 means
-  // the tier has no code for this script and the engine never consults it.
-  uint32_t externalTierWord_ = 0;
+  // The external tier's pointer-sized per-script word
+  // (js/ExternalCompilerHooks.h): 0 means the tier has no code for this
+  // script and the engine never consults it.
+  uintptr_t externalTierWord_ = 0;
 #endif
 
   // End of fields.
@@ -1610,8 +1611,8 @@ class BaseScript : public gc::TenuredCellWithNonGCPointer<uint8_t> {
   bool isUsingInterpreterTrampoline(JSRuntime* rt) const;
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
-  uint32_t externalTierWord() const { return externalTierWord_; }
-  void setExternalTierWord(uint32_t w) { externalTierWord_ = w; }
+  uintptr_t externalTierWord() const { return externalTierWord_; }
+  void setExternalTierWord(uintptr_t w) { externalTierWord_ = w; }
   static constexpr size_t offsetOfExternalTierWord() {
     return offsetof(BaseScript, externalTierWord_);
   }

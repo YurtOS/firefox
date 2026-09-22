@@ -33,12 +33,11 @@ namespace shadow {
  */
 struct Object {
   shadow::Shape* shape;
-#ifndef JS_64BIT
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // Mirrors JSObject: the external tier's pointer-sized per-object word.
+  uintptr_t externalWord_;
+#elif !defined(JS_64BIT)
   uint32_t padding_;
-#elif defined(JS_EXTERNAL_COMPILER_HOOKS)
-  // Mirrors JSObject: the external tier's per-object word, plus alignment.
-  uint32_t padding_;
-  uint32_t padding2_;
 #endif
   Value* slots;
   void* _1;

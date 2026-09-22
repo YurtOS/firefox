@@ -122,8 +122,9 @@ class RegExpShared
   uint32_t ticks_ = 0;
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
-  // The external tier's per-RegExpShared word (js/ExternalCompilerHooks.h).
-  uint32_t externalWord_ = 0;
+  // The external tier's pointer-sized per-RegExpShared word
+  // (js/ExternalCompilerHooks.h).
+  uintptr_t externalWord_ = 0;
 #endif
 
   // With duplicate named capture groups, it's possible that the number of
@@ -222,8 +223,8 @@ class RegExpShared
   }
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
-  uint32_t externalWord() const { return externalWord_; }
-  void setExternalWord(uint32_t v) { externalWord_ = v; }
+  uintptr_t externalWord() const { return externalWord_; }
+  void setExternalWord(uintptr_t v) { externalWord_ = v; }
 #endif
 
   uint32_t numNamedCaptures() const { return numNamedCaptures_; }

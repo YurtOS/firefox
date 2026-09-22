@@ -49,7 +49,7 @@ void JSContext::destroyExternalCompilerState() {
 }
 
 JS_PUBLIC_API void js::ExternalObjectDemoted(JSContext* cx, JSObject* obj,
-                                             uint32_t oldWord,
+                                             uintptr_t oldWord,
                                              JS::ExternalObjectMutation why) {
   JS::ExternalCompilerHooks* hooks = cx->externalCompilerHooks();
   if (hooks && hooks->objectDemoted) {
@@ -65,11 +65,11 @@ JS_PUBLIC_API void js::ExternalObjectStore(JSObject* obj, const JS::Value& v) {
   if (!hooks) {
     return;
   }
-  uint32_t w = obj->externalWord();
+  uintptr_t w = obj->externalWord();
   if ((w & rt->externalObjectStoreMask()) == 0) {
     return;
   }
-  uint32_t nw = w & ~hooks->storeClearMask;
+  uintptr_t nw = w & ~hooks->storeClearMask;
   if (!v.isNumber()) {
     nw &= ~hooks->storeNonNumberClearMask;
   }

@@ -321,7 +321,7 @@ struct JSRuntime {
   // the union of its store masks. Plain fields: the slot-store choke reaches
   // them through an object's runtime from whatever thread stores.
   JS::ExternalCompilerHooks* externalCompilerHooks_ = nullptr;
-  uint32_t externalObjectStoreMask_ = 0;
+  uintptr_t externalObjectStoreMask_ = 0;
 #endif
 
 #ifdef ENABLE_PORTABLE_BASELINE_INTERP
@@ -335,7 +335,7 @@ struct JSRuntime {
   JS::ExternalCompilerHooks* externalCompilerHooks() const {
     return externalCompilerHooks_;
   }
-  uint32_t externalObjectStoreMask() const { return externalObjectStoreMask_; }
+  uintptr_t externalObjectStoreMask() const { return externalObjectStoreMask_; }
   void setExternalCompilerHooks(JS::ExternalCompilerHooks* hooks);
 #endif
 #ifdef ENABLE_PORTABLE_BASELINE_INTERP
