@@ -38,7 +38,8 @@ extern "C" BOOLEAN NTAPI RtlGenRandom(PVOID RandomBuffer,
 
 #if defined(__linux__)
 #  if defined(__wasi__)
-// The Yurt guest SDK ships no <linux/*.h> UAPI headers (YurtOS/yurt-toolchain#139).
+// Yurt: musl's <sys/random.h> declares getrandom and GRND_NONBLOCK, with no
+// dependency on the kernel UAPI headers.
 #    include <sys/random.h>  // For GRND_NONBLOCK.
 #  else
 #    include <linux/random.h>  // For GRND_NONBLOCK.
