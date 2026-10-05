@@ -29,13 +29,20 @@ extern "C" BOOLEAN NTAPI RtlGenRandom(PVOID RandomBuffer,
 
 #if defined(ANDROID) || defined(XP_DARWIN) || defined(__DragonFly__) ||    \
     defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || \
-    defined(__wasi__)
+    (defined(__wasi__) && !defined(__linux__))
+// Yurt (wasm32-yurt-linux-musl) builds as WASI but defines __linux__ too: its
+// musl has no arc4random, so it takes the getrandom path below.
 #  include <stdlib.h>
 #  define USE_ARC4RANDOM
 #endif
 
 #if defined(__linux__)
-#  include <linux/random.h>  // For GRND_NONBLOCK.
+#  if defined(__wasi__)
+// The Yurt guest SDK ships no <linux/*.h> UAPI headers (YurtOS/yurt-toolchain#139).
+#    include <sys/random.h>  // For GRND_NONBLOCK.
+#  else
+#    include <linux/random.h>  // For GRND_NONBLOCK.
+#  endif
 #  include <sys/syscall.h>   // For SYS_getrandom.
 
 // Older glibc versions don't define SYS_getrandom, so we define it here if
