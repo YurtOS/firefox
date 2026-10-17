@@ -9,11 +9,13 @@ assertEq(slots.includes(0), true);
 assertEq(value.method(), 2);
 
 let proto = {method: function () { return 3; }};
+let child = Object.create(proto);
 slots = observeExternalCompilerFuse(proto, function () {
   Object.setPrototypeOf(proto, {inherited: 4});
 });
 assertEq(slots.includes(4294967295), true);
 assertEq(proto.inherited, 4);
+assertEq(child.inherited, 4);
 
 let removed = {method: function () { return 5; }};
 slots = observeExternalCompilerFuse(removed, function () {
