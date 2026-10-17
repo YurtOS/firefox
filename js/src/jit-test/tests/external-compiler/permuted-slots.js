@@ -188,6 +188,7 @@ assertEq(Object.entries(b).map(e => e.join("=")).join(","), "x=X,z=Z,y=Y");
 // The compatible-native-object API reuses the map with a different prototype.
 // Its last property is below the highest slot, so losing PermutedSlots would
 // truncate the span and omit values during the copy.
+assertEq(keys(copyCompatibleNativeObject({ordinary: 5})), "ordinary");
 var compatibleSource = {};
 assertEq(addPropertyAtSlot(compatibleSource, "high", 3), true);
 assertEq(addPropertyAtSlot(compatibleSource, "low", 0), true);
