@@ -83,6 +83,7 @@
 #include "js/experimental/JSStencil.h"  // JS::Stencil, JS::EncodeStencil, JS::DecodeStencil, JS::InstantiateGlobalStencil
 #include "js/experimental/PCCountProfiling.h"  // JS::{Start,Stop}PCCountProfiling, JS::PurgePCCounts, JS::GetPCCountScript{Count,Summary,Contents}
 #include "js/experimental/TypedData.h"         // JS_GetObjectAsUint8Array
+#include "js/ExternalCompilerHooks.h"
 #include "js/friend/DumpFunctions.h"  // js::Dump{Backtrace,Heap,Object}, JS::FormatStackDump, js::IgnoreNurseryObjects
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/friend/WindowProxy.h"    // js::ToWindowProxyIfWindow
@@ -8546,6 +8547,78 @@ static bool NumAllocSitesPretenured(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
+static bool ObserveExternalCompilerFuse(JSContext* cx, unsigned argc,
+                                        Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (args.length() != 2 || !args[0].isObject() ||
+      !args[0].toObject().is<NativeObject>() || !args[1].isObject() ||
+      !JS::IsCallable(&args[1].toObject()) ||
+      JS::GetExternalCompilerHooks(cx->runtime())) {
+    JS_ReportErrorASCII(
+        cx, "expected (native object, callback) without an external tier");
+    return false;
+  }
+  Rooted<NativeObject*> obj(cx, &args[0].toObject().as<NativeObject>());
+  if (!NativeObject::setHasObjectFuse(cx, obj)) {
+    return false;
+  }
+  ObjectFuse* fuse = cx->zone()->objectFuses.getOrCreate(cx, obj);
+  if (!fuse) {
+    return false;
+  }
+  for (ShapePropertyIter<NoGC> iter(obj->shape()); !iter.done(); iter++) {
+    if (iter->hasSlot() && !fuse->tryOptimizeConstantProperty(*iter)) {
+      JS_ReportErrorASCII(cx, "unable to mark property constant");
+      return false;
+    }
+  }
+  struct Observations {
+    ObjectFuse* fuse;
+    uint32_t slots[16];
+    size_t length = 0;
+    bool overflow = false;
+  } observations{fuse};
+  JS::ExternalCompilerHooks hooks{};
+  hooks.objectFuseInvalidated = [](JSContext* cx, ObjectFuse* fuse,
+                                   uint32_t slot) {
+    auto* state = static_cast<Observations*>(cx->getExternalCompilerState());
+    if (fuse != state->fuse) {
+      return;
+    }
+    // This callback must not allocate or GC.
+    if (state->length == 16) {
+      state->overflow = true;
+    } else {
+      state->slots[state->length++] = slot;
+    }
+  };
+  JS::SetExternalCompilerHooks(cx->runtime(), &hooks);
+  cx->setExternalCompilerState(&observations);
+  auto unregister = mozilla::MakeScopeExit(
+      [&] { JS::SetExternalCompilerHooks(cx->runtime(), nullptr); });
+  RootedValue result(cx);
+  if (!JS::Call(cx, UndefinedHandleValue, args[1], HandleValueArray::empty(),
+                &result)) {
+    return false;
+  }
+  if (observations.overflow) {
+    JS_ReportErrorASCII(cx, "external fuse observation buffer overflow");
+    return false;
+  }
+  RootedObject array(cx, JS::NewArrayObject(cx, observations.length));
+  if (!array) {
+    return false;
+  }
+  for (size_t i = 0; i < observations.length; i++) {
+    RootedValue slot(cx, NumberValue(observations.slots[i]));
+    if (!JS_SetElement(cx, array, i, slot)) {
+      return false;
+    }
+  }
+  args.rval().setObject(*array);
+  return true;
+}
+
 // addPropertyAtSlot(obj, key, slot): add a writable, enumerable, configurable
 // data property `key` (value undefined) to plain object `obj` in slot `slot`
 // (SharedShape::getShapeWithPropertyAtSlot). Returns whether it was placed.
@@ -11056,6 +11129,10 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE)
 "  global\n"),
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
+    JS_FN_HELP("observeExternalCompilerFuse", ObserveExternalCompilerFuse, 2, 0,
+"observeExternalCompilerFuse(object, callback)",
+"  Mark properties constant and return slots invalidated while callback runs.\n"),
+
     JS_FN_HELP("addPropertyAtSlot", AddPropertyAtSlot, 3, 0,
 "addPropertyAtSlot(obj, key, slot)",
 "  Add data property key (value undefined) to plain object obj in the given\n"
