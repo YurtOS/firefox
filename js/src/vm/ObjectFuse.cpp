@@ -9,7 +9,9 @@
 #include "gc/Barrier.h"
 #include "gc/StableCellHasher.h"
 #include "jit/InvalidationScriptSet.h"
+#include "js/ExternalCompilerHooks.h"
 #include "js/SweepingAPI.h"
+#include "vm/JSContext.h"
 #include "vm/JSScript.h"
 #include "vm/NativeObject.h"
 #include "vm/PropertyInfo.h"
@@ -50,6 +52,15 @@ bool ObjectFuse::ensurePropertyStateLength(uint32_t length) {
   return true;
 }
 
+void ObjectFuse::notifyExternalTier(JSContext* cx, uint32_t propSlot) {
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  if (JS::ExternalCompilerHooks* hooks = cx->externalCompilerHooks();
+      hooks && hooks->objectFuseInvalidated) {
+    hooks->objectFuseInvalidated(cx, this, propSlot);
+  }
+#endif
+}
+
 bool ObjectFuse::addDependency(uint32_t propSlot,
                                const jit::IonScriptKey& ionScript) {
   MOZ_ASSERT(getPropertyState(propSlot) == PropertyState::Constant);
@@ -66,6 +77,7 @@ bool ObjectFuse::addDependency(uint32_t propSlot,
 void ObjectFuse::invalidateDependentIonScriptsForProperty(JSContext* cx,
                                                           PropertyInfo prop,
                                                           const char* reason) {
+  notifyExternalTier(cx, prop.slot());
   if (auto p = dependencies_.lookup(prop.slot())) {
     p->value().invalidateAndClear(cx, reason);
     dependencies_.remove(p);
@@ -74,6 +86,7 @@ void ObjectFuse::invalidateDependentIonScriptsForProperty(JSContext* cx,
 
 void ObjectFuse::invalidateAllDependentIonScripts(JSContext* cx,
                                                   const char* reason) {
+  notifyExternalTier(cx, UINT32_MAX);
   for (auto r = dependencies_.all(); !r.empty(); r.popFront()) {
     r.front().value().invalidateAndClear(cx, reason);
   }

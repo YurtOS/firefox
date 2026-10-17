@@ -37,6 +37,8 @@
 namespace js {
 class AbstractGeneratorObject;
 class NativeObject;
+class ObjectFuse;
+class SharedShape;
 class RegExpShared;
 class RunState;
 class VectorMatchPairs;
@@ -87,6 +89,17 @@ struct ExternalCompilerHooks {
   void (*propertyAdded)(JSContext* cx, js::NativeObject* obj,
                         JS::PropertyKey id, uint32_t slot,
                         uint32_t numFixedSlots);
+  // Slot placement. Before the engine adds a property to a shared-shape
+  // object whose word is nonzero, it asks here where to put it: set *result
+  // to a shape from js::ExternalShapeWithPropertyAtSlot, made from the
+  // object's current shape with this key and flags (the raw PropertyFlags
+  // byte), to place the property in that shape's slot, or leave it null to
+  // let the engine append the property at the slot span. Return false only
+  // with an exception pending. Engine-side caches keyed by (shape, key) are
+  // not filled with such shapes; the tier memoizes its own.
+  bool (*shapeForAdd)(JSContext* cx, JS::Handle<js::NativeObject*> obj,
+                      JS::HandleId id, uint8_t flags,
+                      js::SharedShape** result);
 
   // Global object. A property was defined or deleted on a global, a data
   // property of a global was written, or a global lexical binding now
@@ -95,6 +108,15 @@ struct ExternalCompilerHooks {
   void (*globalDataStored)(JSContext* cx, JS::PropertyKey id,
                            uint64_t valueBits);
   void (*globalLexicalShadowAdded)(JSContext* cx, uint64_t idBits);
+
+  // Object fuses (vm/ObjectFuse.h). Wherever the engine invalidates the Ion
+  // code depending on a constant property of an object fuse's object, it
+  // reports the fuse and the property's slot here, or UINT32_MAX for every
+  // property (a proto mutation or swap). A tier that marks properties
+  // constant (ObjectFuse::tryOptimizeConstantProperty) and relies on them
+  // drops what it assumed. Must not GC.
+  void (*objectFuseInvalidated)(JSContext* cx, js::ObjectFuse* fuse,
+                                uint32_t propSlot);
 
   // Script entry. Every script carries a pointer-sized external word, zero
   // at birth; the engine consults these only for scripts whose word is
@@ -153,6 +175,26 @@ extern JS_PUBLIC_API void ExternalPropertyAdded(JSContext* cx,
                                                 NativeObject* obj,
                                                 JS::PropertyKey id,
                                                 uint32_t slot);
+extern JS_PUBLIC_API bool ExternalShapeForAdd(JSContext* cx,
+                                              JS::Handle<NativeObject*> obj,
+                                              JS::HandleId id, uint8_t flags,
+                                              SharedShape** result);
+
+// Custom slot placement (SharedShape::getShapeWithPropertyAtSlot): the shape
+// that adds `id` with raw PropertyFlags `flags` to `shape` in slot `slot`, or
+// null in *result (no exception) if that placement is not possible. A slot
+// other than the span gives the shape ObjectFlag::PermutedSlots, which turns
+// off the engine's fast paths that assume slot order is insertion order.
+extern JS_PUBLIC_API bool ExternalShapeWithPropertyAtSlot(
+    JSContext* cx, JS::Handle<SharedShape*> shape, JS::HandleId id,
+    uint8_t flags, uint32_t slot, SharedShape** result);
+
+// Add the property `newShape` adds to `obj`, whose shape it was made from
+// (see NativeObject::addPropertyWithShape). The slot, holding undefined, is
+// returned in *slot for the caller to initialize.
+extern JS_PUBLIC_API bool ExternalAddPropertyWithShape(
+    JSContext* cx, JS::Handle<NativeObject*> obj, SharedShape* newShape,
+    uint32_t* slot);
 
 }  // namespace js
 

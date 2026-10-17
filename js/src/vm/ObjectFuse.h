@@ -131,6 +131,10 @@ class ObjectFuse {
                                                 PropertyInfo prop,
                                                 const char* reason);
   void invalidateAllDependentIonScripts(JSContext* cx, const char* reason);
+  // Tell an external tier (JS::ExternalCompilerHooks::objectFuseInvalidated)
+  // what Ion's dependencies are told: the property in |propSlot|, or every
+  // property (UINT32_MAX), may no longer be assumed constant.
+  void notifyExternalTier(JSContext* cx, uint32_t propSlot);
 
   static constexpr uint32_t propertyStateShift(uint32_t propSlot) {
     return (propSlot % NumPropsPerWord) * NumBitsPerProp;
