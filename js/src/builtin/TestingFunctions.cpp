@@ -8549,14 +8549,16 @@ static bool NumAllocSitesPretenured(JSContext* cx, unsigned argc, Value* vp) {
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
 static bool WithExternalCompilerSlotPolicy(JSContext* cx, unsigned argc,
-                                          Value* vp) {
+                                           Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   if (args.length() != 2 || !args[0].isObject() ||
       !args[0].toObject().is<PlainObject>() || !args[1].isObject() ||
       !JS::IsCallable(&args[1].toObject()) ||
       JS::GetExternalCompilerHooks(cx->runtime()) ||
       args[0].toObject().externalWord()) {
-    JS_ReportErrorASCII(cx, "expected (untagged plain object, callback) without an external tier");
+    JS_ReportErrorASCII(
+        cx,
+        "expected (untagged plain object, callback) without an external tier");
     return false;
   }
   Rooted<PlainObject*> obj(cx, &args[0].toObject().as<PlainObject>());
@@ -8593,7 +8595,8 @@ static bool WithExternalCompilerSlotPolicy(JSContext* cx, unsigned argc,
   return true;
 }
 
-static bool CopyCompatibleNativeObject(JSContext* cx, unsigned argc, Value* vp) {
+static bool CopyCompatibleNativeObject(JSContext* cx, unsigned argc,
+                                       Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   if (args.length() != 1 || !args[0].isObject() ||
       !args[0].toObject().is<PlainObject>() ||
@@ -8604,8 +8607,9 @@ static bool CopyCompatibleNativeObject(JSContext* cx, unsigned argc, Value* vp) 
   Rooted<PlainObject*> src(cx, &args[0].toObject().as<PlainObject>());
   RootedObject proto(cx, nullptr);
   Rooted<PlainObject*> dst(cx, NewPlainObjectWithProtoAndAllocKind(
-                                  cx, proto, src->allocKindForTenure()));
-  if (!dst || !JS_InitializePropertiesFromCompatibleNativeObject(cx, dst, src)) {
+                                   cx, proto, src->allocKindForTenure()));
+  if (!dst ||
+      !JS_InitializePropertiesFromCompatibleNativeObject(cx, dst, src)) {
     return false;
   }
   args.rval().setObject(*dst);
