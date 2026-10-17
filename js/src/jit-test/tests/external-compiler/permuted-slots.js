@@ -184,3 +184,21 @@ var fi = [];
 for (var k in b) fi.push(k);
 assertEq(fi.join(","), "x,z,y");
 assertEq(Object.entries(b).map(e => e.join("=")).join(","), "x=X,z=Z,y=Y");
+
+// The compatible-native-object API reuses the map with a different prototype.
+// Its last property is below the highest slot, so losing PermutedSlots would
+// truncate the span and omit values during the copy.
+var compatibleSource = {};
+assertEq(addPropertyAtSlot(compatibleSource, "high", 3), true);
+assertEq(addPropertyAtSlot(compatibleSource, "low", 0), true);
+compatibleSource.high = {value: 7};
+compatibleSource.low = 11;
+var compatibleCopy = copyCompatibleNativeObject(compatibleSource);
+assertEq(Object.getPrototypeOf(compatibleCopy), null);
+assertEq(hasPermutedSlots(compatibleCopy), true);
+assertEq(objectSlotSpan(compatibleCopy), 4);
+assertEq(keys(compatibleCopy), "high,low");
+gc();
+assertEq(compatibleCopy.high.value, 7);
+compatibleCopy.extra = 13;
+assertEq(compatibleCopy.low + compatibleCopy.extra, 24);

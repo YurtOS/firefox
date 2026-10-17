@@ -155,6 +155,7 @@
 #include "vm/JSObject-inl.h"
 #include "vm/NativeObject-inl.h"
 #include "vm/ObjectFlags-inl.h"
+#include "vm/PlainObject-inl.h"
 #include "vm/StringType-inl.h"
 #include "wasm/WasmInstance-inl.h"
 
@@ -8547,6 +8548,25 @@ static bool NumAllocSitesPretenured(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
+static bool CopyCompatibleNativeObject(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (args.length() != 1 || !args[0].isObject() ||
+      !args[0].toObject().is<PlainObject>() ||
+      args[0].toObject().as<PlainObject>().inDictionaryMode()) {
+    JS_ReportErrorASCII(cx, "expected a plain object with a shared shape");
+    return false;
+  }
+  Rooted<PlainObject*> src(cx, &args[0].toObject().as<PlainObject>());
+  RootedObject proto(cx, nullptr);
+  Rooted<PlainObject*> dst(cx, NewPlainObjectWithProtoAndAllocKind(
+                                  cx, proto, src->allocKindForTenure()));
+  if (!dst || !JS_InitializePropertiesFromCompatibleNativeObject(cx, dst, src)) {
+    return false;
+  }
+  args.rval().setObject(*dst);
+  return true;
+}
+
 static bool ObserveExternalCompilerFuse(JSContext* cx, unsigned argc,
                                         Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -11129,6 +11149,10 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE)
 "  global\n"),
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
+    JS_FN_HELP("copyCompatibleNativeObject", CopyCompatibleNativeObject, 1, 0,
+"copyCompatibleNativeObject(object)",
+"  Copy shared-shape plain-object properties to an object with null prototype.\n"),
+
     JS_FN_HELP("observeExternalCompilerFuse", ObserveExternalCompilerFuse, 2, 0,
 "observeExternalCompilerFuse(object, callback)",
 "  Mark properties constant and return slots invalidated while callback runs.\n"),
