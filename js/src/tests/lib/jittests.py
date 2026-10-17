@@ -678,7 +678,7 @@ def print_test_summary(num_tests, failures, complete, slow_tests, doing, options
         if not any:
             print("None")
 
-    return not failures
+    return complete and not failures
 
 
 def create_progressbar(num_tests, options):
