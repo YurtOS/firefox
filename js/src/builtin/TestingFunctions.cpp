@@ -8548,6 +8548,51 @@ static bool NumAllocSitesPretenured(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
+static bool WithExternalCompilerSlotPolicy(JSContext* cx, unsigned argc,
+                                          Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (args.length() != 2 || !args[0].isObject() ||
+      !args[0].toObject().is<PlainObject>() || !args[1].isObject() ||
+      !JS::IsCallable(&args[1].toObject()) ||
+      JS::GetExternalCompilerHooks(cx->runtime()) ||
+      args[0].toObject().externalWord()) {
+    JS_ReportErrorASCII(cx, "expected (untagged plain object, callback) without an external tier");
+    return false;
+  }
+  Rooted<PlainObject*> obj(cx, &args[0].toObject().as<PlainObject>());
+  struct SlotPolicy {
+    uint32_t requested = 0;
+    uint32_t notified = 0;
+  } policy;
+  JS::ExternalCompilerHooks hooks{};
+  hooks.shapeForAdd = [](JSContext* cx, Handle<NativeObject*> obj, HandleId id,
+                         uint8_t flags, SharedShape** result) {
+    auto* state = static_cast<SlotPolicy*>(cx->getExternalCompilerState());
+    Rooted<SharedShape*> shape(cx, obj->sharedShape());
+    uint32_t slot = state->requested++ == 0 ? 3 : 0;
+    return ExternalShapeWithPropertyAtSlot(cx, shape, id, flags, slot, result);
+  };
+  hooks.propertyAdded = [](JSContext* cx, NativeObject*, PropertyKey, uint32_t,
+                           uint32_t) {
+    auto* state = static_cast<SlotPolicy*>(cx->getExternalCompilerState());
+    state->notified++;
+  };
+  JS::SetExternalCompilerHooks(cx->runtime(), &hooks);
+  cx->setExternalCompilerState(&policy);
+  obj->setExternalWord(1);
+  auto unregister = mozilla::MakeScopeExit([&] {
+    obj->setExternalWord(0);
+    JS::SetExternalCompilerHooks(cx->runtime(), nullptr);
+  });
+  RootedValue result(cx);
+  if (!JS::Call(cx, UndefinedHandleValue, args[1], HandleValueArray::empty(),
+                &result)) {
+    return false;
+  }
+  args.rval().setNumber(policy.notified);
+  return true;
+}
+
 static bool CopyCompatibleNativeObject(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   if (args.length() != 1 || !args[0].isObject() ||
@@ -11149,6 +11194,10 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE)
 "  global\n"),
 
 #ifdef JS_EXTERNAL_COMPILER_HOOKS
+    JS_FN_HELP("withExternalCompilerSlotPolicy", WithExternalCompilerSlotPolicy, 2, 0,
+"withExternalCompilerSlotPolicy(object, callback)",
+"  Observe property additions, placing the first at slot 3 and the next at 0.\n"),
+
     JS_FN_HELP("copyCompatibleNativeObject", CopyCompatibleNativeObject, 1, 0,
 "copyCompatibleNativeObject(object)",
 "  Copy shared-shape plain-object properties to an object with null prototype.\n"),
