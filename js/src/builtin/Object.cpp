@@ -894,6 +894,12 @@ void PlainObjectAssignCache::assertValid() const {
   }
 
   Handle<PlainObject*> toPlain = to.as<PlainObject>();
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // Bulk shape reuse bypasses the tier's placement and addition callbacks.
+  if (toPlain->externalWord()) {
+    return true;
+  }
+#endif
   if (!CanAddNewPropertyExcludingProtoFast(toPlain)) {
     return true;
   }

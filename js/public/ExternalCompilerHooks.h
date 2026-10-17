@@ -97,6 +97,8 @@ struct ExternalCompilerHooks {
   // let the engine append the property at the slot span. Return false only
   // with an exception pending. Engine-side caches keyed by (shape, key) are
   // not filled with such shapes; the tier memoizes its own.
+  // Cached append stubs may instead report the actual slot via propertyAdded;
+  // the tier must drop a layout assumption incompatible with that slot.
   bool (*shapeForAdd)(JSContext* cx, JS::Handle<js::NativeObject*> obj,
                       JS::HandleId id, uint8_t flags,
                       js::SharedShape** result);
@@ -115,6 +117,7 @@ struct ExternalCompilerHooks {
   // property (a proto mutation or swap). A tier that marks properties
   // constant (ObjectFuse::tryOptimizeConstantProperty) and relies on them
   // drops what it assumed. Must not GC.
+  // The fuse is owned by its object; do not retain it beyond that lifetime.
   void (*objectFuseInvalidated)(JSContext* cx, js::ObjectFuse* fuse,
                                 uint32_t propSlot);
 
