@@ -83,6 +83,7 @@
 #include "js/experimental/JSStencil.h"  // JS::Stencil, JS::EncodeStencil, JS::DecodeStencil, JS::InstantiateGlobalStencil
 #include "js/experimental/PCCountProfiling.h"  // JS::{Start,Stop}PCCountProfiling, JS::PurgePCCounts, JS::GetPCCountScript{Count,Summary,Contents}
 #include "js/experimental/TypedData.h"         // JS_GetObjectAsUint8Array
+#include "js/ExternalCompilerHooks.h"
 #include "js/friend/DumpFunctions.h"  // js::Dump{Backtrace,Heap,Object}, JS::FormatStackDump, js::IgnoreNurseryObjects
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/friend/WindowProxy.h"    // js::ToWindowProxyIfWindow
@@ -154,6 +155,7 @@
 #include "vm/JSObject-inl.h"
 #include "vm/NativeObject-inl.h"
 #include "vm/ObjectFlags-inl.h"
+#include "vm/PlainObject-inl.h"
 #include "vm/StringType-inl.h"
 #include "wasm/WasmInstance-inl.h"
 
@@ -8545,6 +8547,215 @@ static bool NumAllocSitesPretenured(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+static bool WithExternalCompilerSlotPolicy(JSContext* cx, unsigned argc,
+                                           Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (args.length() != 2 || !args[0].isObject() ||
+      !args[0].toObject().is<PlainObject>() || !args[1].isObject() ||
+      !JS::IsCallable(&args[1].toObject()) ||
+      JS::GetExternalCompilerHooks(cx->runtime()) ||
+      args[0].toObject().externalWord()) {
+    JS_ReportErrorASCII(
+        cx,
+        "expected (untagged plain object, callback) without an external tier");
+    return false;
+  }
+  Rooted<PlainObject*> obj(cx, &args[0].toObject().as<PlainObject>());
+  struct SlotPolicy {
+    uint32_t requested = 0;
+    uint32_t notified = 0;
+  } policy;
+  JS::ExternalCompilerHooks hooks{};
+  hooks.shapeForAdd = [](JSContext* cx, Handle<NativeObject*> obj, HandleId id,
+                         uint8_t flags, SharedShape** result) {
+    auto* state = static_cast<SlotPolicy*>(cx->getExternalCompilerState());
+    Rooted<SharedShape*> shape(cx, obj->sharedShape());
+    uint32_t slot = state->requested++ == 0 ? 3 : 0;
+    return ExternalShapeWithPropertyAtSlot(cx, shape, id, flags, slot, result);
+  };
+  hooks.propertyAdded = [](JSContext* cx, NativeObject*, PropertyKey, uint32_t,
+                           uint32_t) {
+    auto* state = static_cast<SlotPolicy*>(cx->getExternalCompilerState());
+    state->notified++;
+  };
+  JS::SetExternalCompilerHooks(cx->runtime(), &hooks);
+  cx->setExternalCompilerState(&policy);
+  obj->setExternalWord(1);
+  auto unregister = mozilla::MakeScopeExit([&] {
+    obj->setExternalWord(0);
+    JS::SetExternalCompilerHooks(cx->runtime(), nullptr);
+  });
+  RootedValue result(cx);
+  if (!JS::Call(cx, UndefinedHandleValue, args[1], HandleValueArray::empty(),
+                &result)) {
+    return false;
+  }
+  args.rval().setNumber(policy.notified);
+  return true;
+}
+
+static bool CopyCompatibleNativeObject(JSContext* cx, unsigned argc,
+                                       Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (args.length() != 1 || !args[0].isObject() ||
+      !args[0].toObject().is<PlainObject>() ||
+      args[0].toObject().as<PlainObject>().inDictionaryMode()) {
+    JS_ReportErrorASCII(cx, "expected a plain object with a shared shape");
+    return false;
+  }
+  Rooted<PlainObject*> src(cx, &args[0].toObject().as<PlainObject>());
+  RootedObject proto(cx, nullptr);
+  Rooted<PlainObject*> dst(cx, NewPlainObjectWithProtoAndAllocKind(
+                                   cx, proto, src->allocKindForTenure()));
+  if (!dst ||
+      !JS_InitializePropertiesFromCompatibleNativeObject(cx, dst, src)) {
+    return false;
+  }
+  args.rval().setObject(*dst);
+  return true;
+}
+
+static bool ObserveExternalCompilerFuse(JSContext* cx, unsigned argc,
+                                        Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (args.length() != 2 || !args[0].isObject() ||
+      !args[0].toObject().is<NativeObject>() || !args[1].isObject() ||
+      !JS::IsCallable(&args[1].toObject()) ||
+      JS::GetExternalCompilerHooks(cx->runtime())) {
+    JS_ReportErrorASCII(
+        cx, "expected (native object, callback) without an external tier");
+    return false;
+  }
+  Rooted<NativeObject*> obj(cx, &args[0].toObject().as<NativeObject>());
+  if (!NativeObject::setHasObjectFuse(cx, obj)) {
+    return false;
+  }
+  ObjectFuse* fuse = cx->zone()->objectFuses.getOrCreate(cx, obj);
+  if (!fuse) {
+    return false;
+  }
+  for (ShapePropertyIter<NoGC> iter(obj->shape()); !iter.done(); iter++) {
+    if (iter->hasSlot() && !fuse->tryOptimizeConstantProperty(*iter)) {
+      JS_ReportErrorASCII(cx, "unable to mark property constant");
+      return false;
+    }
+  }
+  struct Observations {
+    ObjectFuse* fuse;
+    uint32_t slots[16];
+    size_t length = 0;
+    bool overflow = false;
+  } observations{fuse};
+  JS::ExternalCompilerHooks hooks{};
+  hooks.objectFuseInvalidated = [](JSContext* cx, ObjectFuse* fuse,
+                                   uint32_t slot) {
+    auto* state = static_cast<Observations*>(cx->getExternalCompilerState());
+    if (fuse != state->fuse) {
+      return;
+    }
+    // This callback must not allocate or GC.
+    if (state->length == 16) {
+      state->overflow = true;
+    } else {
+      state->slots[state->length++] = slot;
+    }
+  };
+  JS::SetExternalCompilerHooks(cx->runtime(), &hooks);
+  cx->setExternalCompilerState(&observations);
+  auto unregister = mozilla::MakeScopeExit(
+      [&] { JS::SetExternalCompilerHooks(cx->runtime(), nullptr); });
+  RootedValue result(cx);
+  if (!JS::Call(cx, UndefinedHandleValue, args[1], HandleValueArray::empty(),
+                &result)) {
+    return false;
+  }
+  if (observations.overflow) {
+    JS_ReportErrorASCII(cx, "external fuse observation buffer overflow");
+    return false;
+  }
+  RootedObject array(cx, JS::NewArrayObject(cx, observations.length));
+  if (!array) {
+    return false;
+  }
+  for (size_t i = 0; i < observations.length; i++) {
+    RootedValue slot(cx, NumberValue(observations.slots[i]));
+    if (!JS_SetElement(cx, array, i, slot)) {
+      return false;
+    }
+  }
+  args.rval().setObject(*array);
+  return true;
+}
+
+// addPropertyAtSlot(obj, key, slot): add a writable, enumerable, configurable
+// data property `key` (value undefined) to plain object `obj` in slot `slot`
+// (SharedShape::getShapeWithPropertyAtSlot). Returns whether it was placed.
+static bool AddPropertyAtSlot(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (args.length() != 3 || !args[0].isObject() ||
+      !args[0].toObject().is<PlainObject>() || !args[2].isInt32() ||
+      args[2].toInt32() < 0) {
+    JS_ReportErrorASCII(cx,
+                        "addPropertyAtSlot: expected (plain object, key, "
+                        "slot)");
+    return false;
+  }
+  Rooted<NativeObject*> obj(cx, &args[0].toObject().as<NativeObject>());
+  RootedId id(cx);
+  if (!ToPropertyKey(cx, args[1], &id)) {
+    return false;
+  }
+  if (id.isInt() || obj->inDictionaryMode() || !obj->isExtensible() ||
+      obj->containsPure(id)) {
+    args.rval().setBoolean(false);
+    return true;
+  }
+  Rooted<SharedShape*> shape(cx, obj->sharedShape());
+  SharedShape* newShape = nullptr;
+  if (!SharedShape::getShapeWithPropertyAtSlot(
+          cx, shape, id, PropertyFlags::defaultDataPropFlags,
+          uint32_t(args[2].toInt32()), &newShape)) {
+    return false;
+  }
+  if (!newShape) {
+    args.rval().setBoolean(false);
+    return true;
+  }
+  uint32_t slot;
+  if (!NativeObject::addPropertyWithShape(cx, obj, newShape, &slot)) {
+    return false;
+  }
+  args.rval().setBoolean(true);
+  return true;
+}
+
+// hasPermutedSlots(obj): whether obj's shape has ObjectFlag::PermutedSlots.
+static bool HasPermutedSlots(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (args.length() != 1 || !args[0].isObject()) {
+    JS_ReportErrorASCII(cx, "hasPermutedSlots: expected an object");
+    return false;
+  }
+  args.rval().setBoolean(args[0].toObject().shape()->hasPermutedSlots());
+  return true;
+}
+
+// objectSlotSpan(obj): obj's slot span, or -1 for a non-native object.
+static bool ObjectSlotSpan(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (args.length() != 1 || !args[0].isObject()) {
+    JS_ReportErrorASCII(cx, "objectSlotSpan: expected an object");
+    return false;
+  }
+  JSObject* obj = &args[0].toObject();
+  args.rval().setInt32(obj->is<NativeObject>()
+                           ? int32_t(obj->as<NativeObject>().slotSpan())
+                           : -1);
+  return true;
+}
+#endif
+
 static bool GetLcovInfo(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
@@ -10985,6 +11196,33 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE)
 "numAllocSitesPretenured()",
 "  Return the number of allocation sites that were pretenured for the current\n"
 "  global\n"),
+
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+    JS_FN_HELP("withExternalCompilerSlotPolicy", WithExternalCompilerSlotPolicy, 2, 0,
+"withExternalCompilerSlotPolicy(object, callback)",
+"  Observe property additions, placing the first at slot 3 and the next at 0.\n"),
+
+    JS_FN_HELP("copyCompatibleNativeObject", CopyCompatibleNativeObject, 1, 0,
+"copyCompatibleNativeObject(object)",
+"  Copy shared-shape plain-object properties to an object with null prototype.\n"),
+
+    JS_FN_HELP("observeExternalCompilerFuse", ObserveExternalCompilerFuse, 2, 0,
+"observeExternalCompilerFuse(object, callback)",
+"  Mark properties constant and return slots invalidated while callback runs.\n"),
+
+    JS_FN_HELP("addPropertyAtSlot", AddPropertyAtSlot, 3, 0,
+"addPropertyAtSlot(obj, key, slot)",
+"  Add data property key (value undefined) to plain object obj in the given\n"
+"  slot, not at the slot span. Returns whether it was placed.\n"),
+
+    JS_FN_HELP("hasPermutedSlots", HasPermutedSlots, 1, 0,
+"hasPermutedSlots(obj)",
+"  Return whether obj's slots may not follow property insertion order.\n"),
+
+    JS_FN_HELP("objectSlotSpan", ObjectSlotSpan, 1, 0,
+"objectSlotSpan(obj)",
+"  Return obj's slot span (-1 for a non-native object).\n"),
+#endif
 
     JS_FN_HELP("getLcovInfo", GetLcovInfo, 1, 0,
 "getLcovInfo(global)",

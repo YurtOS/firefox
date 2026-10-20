@@ -878,6 +878,12 @@ void PlainObjectAssignCache::assertValid() const {
   if (fromPlain->getDenseInitializedLength() > 0 || fromPlain->isIndexed()) {
     return true;
   }
+
+  // The fast path copies slot i to slot i and assumes property i is in slot
+  // i, which permuted slots do not.
+  if (fromPlain->shape()->hasPermutedSlots()) {
+    return true;
+  }
   MOZ_ASSERT(!fromPlain->getClass()->getNewEnumerate());
   MOZ_ASSERT(!fromPlain->getClass()->getEnumerate());
 
@@ -888,6 +894,12 @@ void PlainObjectAssignCache::assertValid() const {
   }
 
   Handle<PlainObject*> toPlain = to.as<PlainObject>();
+#ifdef JS_EXTERNAL_COMPILER_HOOKS
+  // Bulk shape reuse bypasses the tier's placement and addition callbacks.
+  if (toPlain->externalWord()) {
+    return true;
+  }
+#endif
   if (!CanAddNewPropertyExcludingProtoFast(toPlain)) {
     return true;
   }
@@ -1030,7 +1042,7 @@ void PlainObjectAssignCache::assertValid() const {
   // more complicated slot layout (the slot numbers may not match the property
   // definition order and the slots may contain holes).
   if (toWasEmpty && hasOnlyEnumerableProps && !fromPlain->inDictionaryMode() &&
-      !toPlain->inDictionaryMode()) {
+      !toPlain->inDictionaryMode() && !toPlain->shape()->hasPermutedSlots()) {
     PlainObjectAssignCache& cache = cx->realm()->plainObjectAssignCache;
     cache.fill(&origToShape->asShared(), fromPlain->sharedShape(),
                toPlain->sharedShape());

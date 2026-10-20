@@ -482,6 +482,11 @@ struct JS_PUBLIC_API JSContext : public JS::RootingContext,
     return externalCompilerHooks_;
   }
   void* getExternalCompilerState() const { return externalCompilerState_; }
+  // For a tier's compiled code, which reaches its per-context state from
+  // the context it is passed.
+  static constexpr size_t offsetOfExternalCompilerState() {
+    return offsetof(JSContext, externalCompilerState_);
+  }
   void setExternalCompilerState(void* state) {
     externalCompilerState_ = state;
   }

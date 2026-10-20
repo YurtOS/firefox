@@ -77,6 +77,12 @@ inline ObjectFlags CopyPropMapObjectFlags(ObjectFlags dest,
   if (source.hasFlag(ObjectFlag::NeedsProxyGetSetResultValidation)) {
     dest.setFlag(ObjectFlag::NeedsProxyGetSetResultValidation);
   }
+  if (source.hasFlag(ObjectFlag::PermutedSlots)) {
+    dest.setFlag(ObjectFlag::PermutedSlots);
+  }
+  if (source.hasFlag(ObjectFlag::HasEnumerable)) {
+    dest.setFlag(ObjectFlag::HasEnumerable);
+  }
   return dest;
 }
 
