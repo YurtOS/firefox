@@ -82,9 +82,12 @@ test result or timing.
 For engine changes run, from the repository root, `./mach format`, `./mach lint`
 and `./mach build` as above. Then run the tests that cover the change:
 
-- Regressions in `js/src/jit-test/tests/`: run the file with the built shell
-  (a WASI shell runs under Wasmtime), or through `js/src/jit-test/jit_test.py`.
-  A passing run exits 0; a nonzero exit is a failure.
+- Regressions in `js/src/jit-test/tests/`: run them through
+  `js/src/jit-test/jit_test.py`. A test whose first line has a `// |jit-test|`
+  header (`error:`, `exitstatus:`) expects a particular exit code and message,
+  so a raw shell run's exit status is the wrong verdict for it. Run a
+  self-contained test with no such header directly with the built shell (a WASI
+  shell runs under Wasmtime), where exit 0 is a pass.
 - Harness changes (once `js/src/tests/lib/test_jittests.py` exists, added by
   YurtOS/firefox#3): `cd js/src/tests && python3 -m unittest lib.test_jittests`.
   Do not pass `-I`; it removes the working directory from the import path and
