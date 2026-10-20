@@ -43,3 +43,86 @@ You can find the review identifier by inspecting the commit log with:
 - It's better to just run `./mach build` without subdirectory, the build system is well optimized
 - Always build normally, never use subdirectories, e.g. `./mach build` is the only command to run
 - Never build with a subdirectory. Always simply do `./mach build`
+
+# YurtOS fork
+
+Everything above is Mozilla's guidance and stays as is, to keep upstream syncs
+clean. This section applies to YurtOS/firefox. Read
+[docs/agents/org.md](docs/agents/org.md) first; it is a verbatim copy of YurtOS's
+shared policy, so change the canonical kernel copy before syncing it. If it
+disagrees with Mozilla's text above, stop and tell the user, except as stated
+here.
+
+**Commits.** Mozilla's "Do not perform commits yourself, ever" does not apply in
+this fork. The org rules require committing the failing test before the fix and
+adding follow-up commits to a PR branch, so agents commit and push as
+`docs/agents/org.md` describes.
+
+## Purpose and layout
+
+This is the SpiderMonkey engine fork used by Nightmonkey, the ahead-of-time
+JavaScript-to-WebAssembly compiler in YurtOS/nightmonkey. The default branch is
+`yurt`; start work and PRs from it. Only `js/` and its build matter here. The
+supported configuration is the WASI SpiderMonkey shell built by Nightmonkey's
+`scripts/build-spidermonkey.sh` and `configs/`, with `--disable-jit`. A native
+`wasm32-yurt-linux-musl` mozbuild target is tracked in YurtOS/firefox#1; do not
+add compiler wrappers or temporary target configuration to work around it.
+
+Engine hooks that an external compiler depends on live in
+`js/public/ExternalCompilerHooks.h` and `js/src/vm/ExternalCompilerHooks.cpp`.
+Their tables, layout constants and offsets are mirrored in Nightmonkey. Change
+both sides together: land the engine change as its own PR here, then pin the
+matching revision in Nightmonkey. Record the exact engine SHA with any build,
+test result or timing.
+
+## Verification
+
+For engine changes run, from the repository root, `./mach format`, `./mach lint`
+and `./mach build` as above. Then run the tests that cover the change:
+
+- Regressions in `js/src/jit-test/tests/` run directly against the built shell.
+  A passing run exits 0; a nonzero exit is a failure.
+- Harness changes: `cd js/src/tests && python3 -m unittest lib.test_jittests`.
+  Do not pass `-I`; it removes the working directory from the import path and
+  the module will not load.
+- Affected language semantics: scoped `jit-test` and `jstests` runs with the
+  filter, executed and passing counts stated. A zero-test run, a selected-count
+  summary or an interrupted run is not evidence.
+
+A test or gate that cannot fail is not evidence. Add the red test first, show it
+fails for the intended reason on the base, and for guard or notification code
+show that disabling the code makes the test fail. Report skipped lanes,
+exclusions and failures reproduced on the base explicitly.
+
+Native JIT paths are not execution-qualified in the supported configuration.
+Say so rather than claiming coverage for them.
+
+Changes to `.github/workflows/` require approval from the Mozilla GitHub
+Enterprise Administrators Team (see `.github/workflows/README`); do not edit
+them as part of ordinary work. Check live branch protection before describing
+any hosted job as required; at the time of writing `yurt` has none.
+
+## Engine rules
+
+- Preserve JavaScript semantics, exception behavior, evaluation order and GC
+  safety. Keep rooting, barriers and shape/property-map invariants at their
+  owners; copying a property map must preserve its flags (for example
+  `PermutedSlots` and `HasEnumerable`).
+- Hook callers are trusted engine code in the same process. Keep existing
+  assertions; do not add a second validation layer for a caller that violates a
+  documented contract. Input that crosses a trust boundary is different and must
+  stay validated.
+- Optimise only on evidence: a benchmark against the same engine revision,
+  program and options.
+- Keep fork changes to upstream Mozilla files small and separate from
+  Yurt-specific files, so upstream merges stay reviewable.
+
+## Skills and discovery
+
+The shared workflows live in `.agents/skills/`; `.claude/skills` links to that
+directory. Use issue-to-mergeable-pr, drive-pr-to-mergeable, drive-pr-stack and
+drive-doc-to-approved for their named workflows. Global plugins and CLIs are
+prerequisites, not vendored dependencies; report unavailable reviewers rather
+than claiming their approval. Use `searchfox-cli` for code discovery as
+described above, and never copy local permission grants, credentials or
+machine-specific paths from another repository.
