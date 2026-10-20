@@ -64,7 +64,9 @@ This is the SpiderMonkey engine fork used by Nightmonkey, the ahead-of-time
 JavaScript-to-WebAssembly compiler in YurtOS/nightmonkey. The default branch is
 `yurt`; start work and PRs from it. Only `js/` and its build matter here. The
 supported configuration is the WASI SpiderMonkey shell built by Nightmonkey's
-`scripts/build-spidermonkey.sh` and `configs/`, with `--disable-jit`. A native
+`scripts/build-spidermonkey.sh` with its `spidermonkey/mozconfig` (which enables
+`--enable-external-compiler-hooks` and `--disable-jit`); Nightmonkey's `configs/`
+holds benchmark-lane variants only. A native
 `wasm32-yurt-linux-musl` mozbuild target is tracked in YurtOS/firefox#1; do not
 add compiler wrappers or temporary target configuration to work around it.
 
@@ -80,11 +82,15 @@ test result or timing.
 For engine changes run, from the repository root, `./mach format`, `./mach lint`
 and `./mach build` as above. Then run the tests that cover the change:
 
-- Regressions in `js/src/jit-test/tests/` run directly against the built shell.
+- Regressions in `js/src/jit-test/tests/`: run the file with the built shell
+  (a WASI shell runs under Wasmtime), or through `js/src/jit-test/jit_test.py`.
   A passing run exits 0; a nonzero exit is a failure.
-- Harness changes: `cd js/src/tests && python3 -m unittest lib.test_jittests`.
+- Harness changes (once `js/src/tests/lib/test_jittests.py` exists, added by
+  YurtOS/firefox#3): `cd js/src/tests && python3 -m unittest lib.test_jittests`.
   Do not pass `-I`; it removes the working directory from the import path and
   the module will not load.
+- Running these tests needs no extra approval, despite "Ask if you should run a
+  test" above.
 - Affected language semantics: scoped `jit-test` and `jstests` runs with the
   filter, executed and passing counts stated. A zero-test run, a selected-count
   summary or an interrupted run is not evidence.
@@ -106,8 +112,8 @@ any hosted job as required; at the time of writing `yurt` has none.
 
 - Preserve JavaScript semantics, exception behavior, evaluation order and GC
   safety. Keep rooting, barriers and shape/property-map invariants at their
-  owners; copying a property map must preserve its flags (for example
-  `PermutedSlots` and `HasEnumerable`).
+  owners; copying a property map must preserve its flags (for example `HasEnumerable`,
+  and `PermutedSlots` once YurtOS/firefox#3 adds it).
 - Hook callers are trusted engine code in the same process. Keep existing
   assertions; do not add a second validation layer for a caller that violates a
   documented contract. Input that crosses a trust boundary is different and must
